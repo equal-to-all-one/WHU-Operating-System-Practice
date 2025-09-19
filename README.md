@@ -1,5 +1,7 @@
 # ECNU OSLab 2024
 
+**最新版本：https://gitee.com/xu-ke-123/ecnu-oslab-2025-task**
+
 ## 简介
 
 这是一份OS实验说明, 实验目标是基于C语言和RISC-V体系结构从零开始设计实现一个简单OS内核  
