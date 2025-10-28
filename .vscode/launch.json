@@ -13,6 +13,9 @@
             "miDebuggerPath": "/usr/bin/gdb-multiarch",
             "environment": [],
             "externalConsole": false,
+            "sourceFileMap": {
+                "/riscv-os": "${workspaceFolder}"
+            },
             "MIMode": "gdb",
             "preLaunchTask": "xv6build",
             "setupCommands": [

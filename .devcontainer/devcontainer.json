@@ -1,0 +1,24 @@
+{
+  "name": "riscv-dev",
+  "image": "os-practice:qemu-7.2",
+  "runArgs": [
+    "--name",
+    "riscv-devcontainer",
+    "-p",
+    "127.0.0.1:26000:26000",
+    "--cap-add=SYS_PTRACE",
+    "--security-opt",
+    "seccomp=unconfined"
+  ],
+  "workspaceFolder": "/riscv-os",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/riscv-os,type=bind,consistency=cached",
+  "remoteUser": "root",
+  "extensions": [
+    "ms-vscode.cpptools",
+    "ms-vscode.cmake-tools"
+  ],
+  "forwardPorts": [26000],
+  "postCreateCommand": "apt-get update || true",
+  "settings": {},
+  "shutdownAction": "stopContainer"
+}

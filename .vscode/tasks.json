@@ -5,20 +5,14 @@
             "label": "xv6build",
             "type": "shell",
             "isBackground": true,
-            "command": "make qemu-gdb",
+            "command": "docker exec riscv-debug-container make qemu-gdb",
             "problemMatcher": [
                 {
-                    "pattern": [
-                        {
-                            "regexp": ".",
-                            "file": 1,
-                            "location": 2,
-                            "message": 3
-                        }
-                    ],
+                    "owner": "xv6",
+                    "pattern": [],
                     "background": {
-                        "beginsPattern": ".*Now run 'gdb' in another window.",
-                        "endsPattern": "."
+                        "beginsPattern": ".*", 
+                        "endsPattern": ".*Now run 'gdb' in another window\\."
                     }
                 }
             ]
