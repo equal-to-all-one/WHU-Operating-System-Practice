@@ -51,7 +51,13 @@ void spinlock_init(spinlock_t *lk, char *name)
 {
     lk->name = name;
     lk->locked = 0; // 没有被持有
-    lk->cpuid = 0; // 默认值（无意义）
+    
+    // 这里将cpuid从xv6的0改为-1，避免当两个进程同时访问一个锁，进程1在release
+    // 进程2（运行在cpu0）在accquire时，由于release 中 cpuid被改成0和原子释放锁操作之间
+    // 被插入了进程2的acquire操作，导致进程2在holding中判断锁被cpu0持有（此时cpuid被修改为0
+    // ，而locked仍然是1）从而panic。
+
+    lk->cpuid = -1; // 没有cpu持有
 }
 
 // 获取自选锁
@@ -66,7 +72,7 @@ void spinlock_acquire(spinlock_t *lk)
     
     // 若当前cpu重复获取锁，会导致死锁
     if(spinlock_holding(lk))
-        panic("acquire spinlock");
+        panic("acquire spinlock repeatedly");
 
     // On RISC-V, sync_lock_test_and_set turns into an atomic swap:
     //   a5 = 1
@@ -105,8 +111,12 @@ void spinlock_release(spinlock_t *lk)
     if(!spinlock_holding(lk))
         panic("release");
 
+    // 这里将cpuid从xv6的0改为-1，避免当两个进程同时访问一个锁，进程1在release
+    // 进程2（运行在cpu0）在accquire时，由于release 中 cpuid被改成0和原子释放锁操作之间
+    // 被插入了进程2的acquire操作，导致进程2在holding中判断锁被cpu0持有（此时cpuid被修改为0
+    // ，而locked仍然是1）从而panic。
     // Clear the lock holder.
-    lk->cpuid = 0;
+    lk->cpuid = -1;
 
     // Tell the C compiler and the CPU to not move loads or stores
     // past（跨过） this point, to ensure that all the stores in the critical

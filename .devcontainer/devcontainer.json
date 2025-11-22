@@ -3,7 +3,7 @@
   "image": "os-practice:qemu-7.2",
   "runArgs": [
     "--name",
-    "riscv-devcontainer",
+    "oslab",
     "-p",
     "127.0.0.1:26000:26000",
     "--cap-add=SYS_PTRACE",
