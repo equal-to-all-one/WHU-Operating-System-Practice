@@ -1,4 +1,5 @@
 #include "riscv.h"
+#include "dev/timer.h"
 
 __attribute__ ((aligned (16))) uint8 CPU_stack[4096 * NCPU];
 
@@ -22,8 +23,11 @@ void start()
     w_medeleg(0xffff);
     w_mideleg(0xffff);
 
-    // 允许机器模式下的软件中断和外部中断（SEIE)、时钟中断(STIE)
-    w_sie(r_sie() | SIE_SEIE | SIE_STIE);
+    // 允许机器模式下的软件中断(SSIE)和外部中断（SEIE)、时钟中断(STIE)
+    // 注意这里增加SIE_SSIE以适应我们的时钟中断处理，这一点与xv6-riscv不同
+    // 事实上我们可以将SIE_STIE去掉，因为我们使用的是M-mode的时钟中断处理
+    // 但为了未来有可能的扩展，我们保留它
+    w_sie(r_sie() | SIE_SEIE | SIE_STIE | SIE_SSIE);
 
     // configure Physical Memory Protection to give supervisor mode
     // access to all of physical memory.
@@ -35,7 +39,7 @@ void start()
     int id = r_mhartid();
     w_tp(id);
 
-    // TODO: timerinit()
+    timer_init();
 
     // switch to supervisor mode and jump to main().
     asm volatile("mret");
