@@ -6,6 +6,7 @@
 #include "trap/trap.h"
 #include "dev/timer.h"
 #include "dev/uart.h"
+#include "proc/proc.h"
 volatile static int started = 0;
 
 int main()
@@ -24,7 +25,7 @@ int main()
         trap_kernel_inithart();
         timer_create();
         intr_on();
-
+        proc_make_first();
         __sync_synchronize();
         started = 1;
 

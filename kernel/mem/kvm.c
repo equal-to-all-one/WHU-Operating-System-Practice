@@ -7,6 +7,8 @@
 #include "riscv.h"
 #include "memlayout.h"
 
+extern char trampoline[]; // in trampoline.S
+
 static pgtbl_t kernel_pgtbl; // 内核页表
 
 
@@ -118,8 +120,8 @@ void vm_unmappages(pgtbl_t pgtbl, uint64 va, uint64 len, bool freeit)
 }
 
 
-// 完成 UART CLINT PLIC 内核代码区 内核数据区 可分配区域 的映射
-// 相当于填充kernel_pgtbl
+// 填充kernel_pgtbl
+// 完成 UART CLINT PLIC 内核代码区 内核数据区 可分配区域 trampoline kstack 的映射
 void kvm_init()
 {
     // 分配内核根页表
@@ -139,6 +141,14 @@ void kvm_init()
 
     // 映射内核数据段和物理内存分配区 (读+写)
     vm_mappages(kernel_pgtbl, (uint64)KERNEL_DATA, (uint64)KERNEL_DATA, (uint64)ALLOC_END - (uint64)KERNEL_DATA, PTE_R | PTE_W);
+
+    // 映射 trampoline
+    vm_mappages(kernel_pgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+    // 映射 kstack
+    void *kstack_pa = pmem_alloc(true);
+    if(kstack_pa == NULL) panic("kvm_init: kstack alloc failed");
+    vm_mappages(kernel_pgtbl, KSTACK(0), (uint64)kstack_pa, PGSIZE, PTE_R | PTE_W);
 }
 
 // 使用新的页表，刷新TLB

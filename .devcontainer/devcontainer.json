@@ -22,3 +22,5 @@
   "settings": {},
   "shutdownAction": "stopContainer"
 }
+// docker container run -it --name oslab --rm -p 127.0.0.1:26000:2
+// 6000 --mount type=bind,src=.,dst=/riscv-os os-practice:qemu-7.2

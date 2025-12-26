@@ -8,27 +8,27 @@
 #include "riscv.h"
 
 // 中断信息
-// static char* interrupt_info[16] = {
-//     "U-mode software interrupt",      // 0
-//     "S-mode software interrupt",      // 1
-//     "reserved-1",                     // 2
-//     "M-mode software interrupt",      // 3
-//     "U-mode timer interrupt",         // 4
-//     "S-mode timer interrupt",         // 5
-//     "reserved-2",                     // 6
-//     "M-mode timer interrupt",         // 7
-//     "U-mode external interrupt",      // 8
-//     "S-mode external interrupt",      // 9
-//     "reserved-3",                     // 10
-//     "M-mode external interrupt",      // 11
-//     "reserved-4",                     // 12
-//     "reserved-5",                     // 13
-//     "reserved-6",                     // 14
-//     "reserved-7",                     // 15
-// };
+char* interrupt_info[16] = {
+    "U-mode software interrupt",      // 0
+    "S-mode software interrupt",      // 1
+    "reserved-1",                     // 2
+    "M-mode software interrupt",      // 3
+    "U-mode timer interrupt",         // 4
+    "S-mode timer interrupt",         // 5
+    "reserved-2",                     // 6
+    "M-mode timer interrupt",         // 7
+    "U-mode external interrupt",      // 8
+    "S-mode external interrupt",      // 9
+    "reserved-3",                     // 10
+    "M-mode external interrupt",      // 11
+    "reserved-4",                     // 12
+    "reserved-5",                     // 13
+    "reserved-6",                     // 14
+    "reserved-7",                     // 15
+};
 
 // 异常信息
-static char* exception_info[16] = {
+char* exception_info[16] = {
     "Instruction address misaligned", // 0
     "Instruction access fault",       // 1
     "Illegal instruction",            // 2
