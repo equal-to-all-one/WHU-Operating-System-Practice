@@ -4,6 +4,7 @@
 #include "mem/vmem.h"
 #include "proc/cpu.h"
 #include "proc/initcode.h"
+#include "common.h"
 #include "memlayout.h"
 
 // in trampoline.S
@@ -71,7 +72,7 @@ void proc_make_first()
     proczero.ustack_pages = 1;
 
     // initcode 映射
-    uint64 initcode_va = 0x1000;
+    uint64 initcode_va = CODE_TEXT_START;
     void *initcode_pa = pmem_alloc(true);
     if(initcode_pa == NULL) panic("proc_make_first: alloc initcode failed");
     
@@ -84,6 +85,15 @@ void proc_make_first()
     
     // 设置 heap_top    
     proczero.heap_top = initcode_va + PGSIZE;
+
+
+    // 设置 mmap_region_t
+    proczero.mmap = mmap_region_alloc();
+    if(proczero.mmap == NULL) panic("proc_make_first: alloc mmap failed");
+    proczero.mmap->begin = MMAP_BEGIN;
+    proczero.mmap->npages = (MMAP_END - MMAP_BEGIN) / PGSIZE;
+    proczero.mmap->next = NULL;
+
 
     // 设置 kstack
     proczero.kstack = KSTACK(0);

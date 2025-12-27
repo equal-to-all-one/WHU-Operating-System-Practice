@@ -52,7 +52,7 @@ pte_t* vm_getpte(pgtbl_t pgtbl, uint64 va, bool alloc)
 // 本质是找到va在页表对应位置的pte并修改它
 // 检查: va pa 应当是 page-aligned, len(字节数) > 0, va + len <= VA_MAX
 // 注意: perm 应该如何使用
-void vm_mappages(pgtbl_t pgtbl, uint64 va, uint64 pa, uint64 len, int perm)
+int32 vm_mappages(pgtbl_t pgtbl, uint64 va, uint64 pa, uint64 len, int perm)
 {
     uint64 cur_va, last_va;
     pte_t* pte;
@@ -85,6 +85,8 @@ void vm_mappages(pgtbl_t pgtbl, uint64 va, uint64 pa, uint64 len, int perm)
         cur_va += PGSIZE;
         pa += PGSIZE;
     }
+
+    return 0;
 }
 
 // 解除pgtbl中[va, va+len)区域的映射

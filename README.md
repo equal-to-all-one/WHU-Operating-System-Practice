@@ -1,4 +1,8 @@
-# LAB-4: 第一个用户态进程的诞生
+#  LAB-5: 用户态虚拟内存管理 + 系统调用流程建立
+
+经历了痛苦的 trap 处理实验后，我们终于可以脱离 RISC-V 体系结构的一大堆寄存器，做一些纯粹的软件设计了
+
+这次实验我们还是围绕第一个用户态进程，关注它的地址空间(虚拟内存)以及它和内核的交互(系统调用)
 
 ## 代码组织结构
 
@@ -13,20 +17,25 @@ ECNU-OSLAB
 │ │ ├── lock.h
 │ │ └── str.h
 │ ├── proc
-│ │ ├── proc.h **(NEW)**
-│ │ ├── initcode.h **(NEW)** 自动生成, 无需copy
-│ │ └── cpu.h **(CHANGE)** 新增函数和字段声明
+│ │ ├── proc.h **(CHANGE)** proc_t 里增加 mmap 字段
+│ │ ├── initcode.h
+│ │ └── cpu.h
 │ ├── mem
-│ │ └── pmem.h
-│ │ └── vmem.h **(CHANGE)** VA_MAX移动到memlayout.h
+│ │ ├── mmap.h **(NEW)**
+│ │ ├── pmem.h
+│ │ └── vmem.h **(CHANEG)** 增加 uvm.c 相关函数定义
 │ ├── trap
-│ │ └── trap.h **(CHANGE)** 新增函数声明
+│ │ └── trap.h
+│ ├── syscall
+│ │ ├── syscall.h **(NEW)**
+│ │ ├── sysfunc.h **(NEW)**
+│ │ └── sysnum.h **(NEW)**
 │ ├── common.h
-│ ├── memlayout.h **(CHANGE)** 新增一些定义
+│ ├── memlayout.h **(CHANGE)** 增加 mmap 相关地址
 │ └── riscv.h
 ├── **kernel**
 │ ├── boot
-│ │ ├── main.c **(CHANGE)** 惯例更新
+│ │ ├── main.c **(CHANGE)** 常规更新
 │ │ ├── start.c
 │ │ ├── entry.S
 │ │ └── Makefile
@@ -41,29 +50,35 @@ ECNU-OSLAB
 │ │ ├── str.c
 │ │ └── Makefile
 │ ├── proc
-│ │ ├── cpu.c **(CHANGE)** 新增myproc()
-│ │ ├── proc.c **(TODO)**
-│ │ ├── swtch.S **(NEW)**
+│ │ ├── cpu.c
+│ │ ├── proc.c **(CHANGE)** 进程初始化过程中增加 mmap 支持
+│ │ ├── swtch.S
 │ │ └── Makefile
 │ ├── mem
 │ │ ├── pmem.c
-│ │ ├── kvm.c **(CHANGE)** 在kvm_init()里增加trampoline和kstack映射
+│ │ ├── kvm.c
+│ │ ├── uvm.c **(TODO)**
+│ │ ├── mmap.c **(TODO)**
 │ │ └── Makefile
+│ ├── syscall
+│ │ ├── syscall.c **(TODO)**
+│ │ ├── sysfunc.c **(TODO)**
+│ │ └── Makefile **(NEW)**
 │ ├── trap
-│ │ ├── trap_kernel.c **(CHANGE)** 删去数组的static标志
-│ │ ├── trap_user.c **(TODO)**
+│ │ ├── trap_kernel.c
+│ │ ├── trap_user.c **(CHANGE)** 系统调用响应
 │ │ ├── trap.S
-│ │ ├── trampoline.S **(NEW)**
+│ │ ├── trampoline.S
 │ │ └── Makefile
 │ ├── Makefile
-│ └── kernel.ld **(CHANGE)** 支持trampsec
+│ └── kernel.ld
 ├── **user**
-│ ├── syscall_arch.h **(NEW)**
-│ ├── syscall_num.h **(NEW)**
-│ ├── sys.h **(NEW)**
-│ ├── initcode.c **(NEW)** 第一个用户态进程的代码
-│ └── Makefile **(NEW)**
-├── Makefile **(CHANGE)** 新增user相关支持
+│ ├── syscall_arch.h
+│ ├── syscall_num.h **(CHANGE)** 与内核对齐
+│ ├── sys.h
+│ ├── initcode.c **(CHANGE)** 日常更新
+│ └── Makefile
+├── Makefile
 └── common.mk
 
 **标记说明**
@@ -72,184 +87,320 @@ ECNU-OSLAB
 2. **NEW** 本次新增的文件 + 无需做修改 (辅助部分)
 3. **CHANGE** 本来就有的文件 + 需要做修改 或 助教做了修改 (整体兼容)
 
-**重要提醒: 本次实验不需要任何助教未定义的函数! 不要私自复制xv6里的函数(如申请进程)!**
+## 任务一: 用户态和内核态的数据迁移
 
-## 任务一: 第一个进程的定义和初始化
+在上一个实验中，我们设计了第一个最简单的系统调用 **sys_print**，它的作用就是让内核做出应答
 
-首先让我们回顾一下前三次实验做了什么:
+事实上，这并不是系统调用真正的模样。
 
-lab-1 实现了机器启动, 从M-mode的start()到S-mode的main(), 可以向屏幕输出内容
+系统调用的本质是用户给内核传递一个任务请求，内核完成用户的任务请求并返回。
 
-lab-2 实现了基本的内存管理系统, 包括物理页维护和内核虚拟页映射, 可以开启分页系统
+关键问题是信息如何在两者之间传递? 传递的方法分为两种：
 
-lab-3 实现了基本的内核陷阱处理, 了解了中断和异常的基本概念, 实现了时钟中断和UART输入中断
+- 针对比较短的信息：直接放在约定好的寄存器 (如系统调用编号固定放在 a7 寄存器)
+- 针对比较长的信息: 如传递一个数组, 则可以把数组地址放在寄存器里, 内核根据用户页表和地址读出数组内容
 
-这次我们希望开启新的模块: 进程模块 (涉及的代码文件: **main.c cpu.c proc.c swtch.S kvm.c**)
+同样，内核的返回值可以直接放在寄存器里，内核中太长的信息则直接写入用户地址空间
 
-### 进程的定义
+短信息的传递我们使用 `arg_uint32()` `arg_uint64()` 之类的函数去做 (in syscall.c)
 
-按照惯例, 我们先考虑最简单的情况: 整个系统只有一个进程, 不需要考虑进程调度和进程状态的问题
+长信息的传递我们使用 `uvm_copyin()` `uvm_copyout()` `uvm_copystr()` 之类的函数去做 (in uvm.c)
 
-那么这个最简单的 **proczero** 应该具备哪些字段呢?
+你的第一阶段任务是补全系统调用流程 (trap_user_handler -> syscall -> 各个系统调用处理函数)
 
-```
-// 进程定义
-typedef struct proc {
+第二阶段任务是完成上述三个数据迁移函数并理解其对应的系统调用函数做了什么事
 
-    int pid;                 // 标识符
+注意：这三个系统调用函数只是服务于下面的测试，并不通用
 
-    pgtbl_t pgtbl;           // 用户态页表
-    uint64 heap_top;         // 用户堆顶(以字节为单位)
-    uint64 ustack_pages;     // 用户栈占用的页面数量
-    trapframe_t* tf;         // 用户态内核态切换时的运行环境暂存空间
-
-    uint64 kstack;           // 内核栈的虚拟地址
-    context_t ctx;           // 内核态进程上下文
-
-} proc_t;
-```
-
-首先是一个全局的标识符, 它是进程的 "名字"
-
-然后是四个用户态的字段, 分别是:
-
-- 页表(地址空间管理)
-- 堆和栈的记录信息
-- trapframe(寄存器信息和内核信息)
-
-最后是两个内核态的字段, 分别是:
-
-- 内核栈地址(内核不需要堆空间)
-- 内核态上下文(寄存器信息)
-
-其他字段我们暂时用不到, 后面用到再添加
-
-### 上下文与上下文切换
-
-定义完进程后我们需要在 **cpu.h** 里新增两个字段:
-
-- cpu 运行的进程 (用户进程)
-- cpu 的上下文
-
-这时候会产生一个问题: 为什么 cpu 和进程都有一个上下文?
-
-首先考虑, 在第一个用户进程诞生之前, 为什么没有上下文的概念?
-
-因为操作系统独占CPU的寄存器, 没有别人和他抢占, 所以不需要一个名为上下文的内存区域暂存各个寄存器的值
-
-此时的操作系统可以理解为一个高级进程(它是隐式的), 因为操作系统毫无疑问也是程序, 那它的栈在哪?
+## 测试一
 
 ```
-__attribute__ ((aligned (16))) uint8 CPU_stack[PGSIZE * NCPU];
+// in initcode.c
+#include "sys.h"
+
+int main()
+{
+    int L[5];
+    char* s = "hello, world"; 
+    syscall(SYS_copyout, L);
+    syscall(SYS_copyin, L, 5);
+    syscall(SYS_copyinstr, s);
+    while(1);
+    return 0;
+}
 ```
 
-还记得我们在 **start.c** 中定义的`CPU_stack`吗, 它就是这些高级进程的栈空间
+实验效果：
 
-现在我们有新的进程了, 它叫用户进程, 也可以叫低级进程
+![图片](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-5/picture/03.png)
 
-于是可能发生CPU的寄存器抢占, 高级进程和低级进程都需要一个 **上下文 context_t**
+## 任务二：用户堆空间的伸缩
 
-作为抢占发生时自己的运行环境(也就是通用寄存器的值)的暂存空间(位于内存)
+在上一次实验中, 我们初始化用户的堆顶为 **USER_BASE + PGSIZE**
 
-当被抢占的进程夺回CPU控制权时, 把这部分存在内存里的值写回各个寄存器, 就可以接着执行了
+这意味着堆的实际空间为0，这次实验我们要尝试增加和缩减堆空间以满足用户的地址空间需求
 
-这就是所谓 "运行环境的保存和恢复", 也是 **swtch.S** 做的事情
+首先，你需要完成 `uvm_heap_grow` 和 `uvm_heap_ungrow` 这两个函数
 
-高级进程每个CPU只有一个, 所以它的上下文保存在 `cpu_t` 里
+核心步骤就是对页表的映射和解映射操作，相信这不会太困难
 
-低级进程可能很多, 所以上下文保存在 `proc_t` 里
+之后，你需要完成 `sys_brk` 系统调用函数
 
-### trapframe的定义
+## 测试二
 
-`trapframe` 的定义和 `context` 有些类似, 看起来都是一堆寄存器信息
-
-区别在于 `context` 是内核态进程切换的暂存区, `trapframe` 是同一个进程在内核态和用户态切换的暂存区
-
-`trapframe` 里的字段可以分成两部分去看:
-
-第一部分是: kernel_xxx 的内核信息 + epc 模式切换的返回地址
-
-第二部分是: 通用寄存器信息(比 `context` 更全, 模式间切换 比 同模式内切换 需要保存的信息更多)
-
-哪些寄存器是我们需要特别设置的呢? 第一部分的全部 + 第二部分的栈顶寄存器sp
-
-### proc.c 函数填写
+让我们测试 sys_brk 系统调用的正确性
 
 ```
-pgtbl_t  proc_pgtbl_init(uint64 trapframe);
-void     proc_make_fisrt();
+// in initcode.c
+#include "sys.h"
+
+int main()
+{
+    long long heap_top = syscall(SYS_brk, 0);
+
+    heap_top = syscall(SYS_brk, heap_top + 4096 * 10);
+
+    heap_top = syscall(SYS_brk, heap_top - 4096 * 5);
+
+    while(1);
+    return 0;
+}
 ```
 
-在 **main.c** 的最后, CPU0 会调用 `proc_make_first` 创建第一个进程
+在sys_brk里面做适当输出, 显示最新的 heap_top 和 页表情况
 
-`proc_make_first` 需要做的事情可以分成三部分:
+```
+    // "look" / "grow" / "ungrow"
+    printf("look: heap_top = %p\n", old_heap_top);
+    vm_print(p->pgtbl);
+    printf("\n");
+```
 
-- 准备用户态页表 (完成一系列映射以实现注释里的用户地址空间, 需要调用 `proc_pgtbl_init`)
+![图片](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-5/picture/04.png)
 
-  注意: 需要在kvm_init里增加trampoline和kstack(需要pmem_alloc, 使用KSTACK宏定义)的映射
+## 任务三: mmap_region_node 仓库管理
 
-- 设置 **proczero** 的各个字段 (trapframe里需要设置epc和sp, context里需要设置ra和sp)
+之前给出的用户进程地址空间分布中只有堆和栈两个可变区域, 其中堆的管理已经完成，栈的管理是自动的
 
-- 设置 CPU 当前运行的进程为 **proczero**, 使用 `swtch` 切换进程上下文 (CPU的ctx 到 proczero的ctx)
+考虑堆的缺陷：它是一块连续的地址空间，不适合零散的空间需求
 
-tips-1: 假设栈的地址空间是 [A, A+PGSIZE), 那么栈的指针初始应该设置为 A+PGSIZE 而不是 A (sp是向下运动的)
+本质原因是它只维护了一个栈顶地址，无法记录多块地址空间
 
-tips-2: 关心 **initcode.h** 是如何在 **user** 目录中编译链接生成的, 以及 **inicode.c** 做了什么事
+什么数据结构更适合做这件事呢？ 毫无疑问是链表！
 
-顺利执行的话, 执行流会来到 `trap_user_return`, 这就引出了我们的第二个任务, **用户态陷阱** 的支持
+我们首先划出一块虚拟地址空间 **[MMAP_BEGIN ~ MMAP_END)**, 这块区域位于堆和栈之间
 
-## 任务二: 用户态陷阱处理
+```
+typedef struct mmap_region {
+    uint64 begin;             // 起始地址
+    uint32 npages;            // 管理的页面数量
+    struct mmap_region* next; // 链表指针
+} mmap_region_t;
+```
 
-### trap流程
+使用这样的数据结构标记一个未分配的 mmap_region
 
-回忆一下上一个实验, 我们已经有了内核态陷阱处理的经验
+进程初始化时 mmap_region 只有一块，它管理 **[MMAP_BEGIN ~ MMAP_END)** 整个区域
 
-内核态陷阱处理流程是: `kerne_vector`前半部分->`trap_kernel_handler`->`kernel_vector`后半部分
+此时如果来了一个空间申请 **[A, B)**, 则 第一个 mmap_region 分裂为两个
 
-用户态陷阱处理流程类似: `user_vector`->`trap_user_handler`->`trap_user_return`->`user_return`
+分别管理 **[MMAP_BEGIN, A)** 和 **[B, MMAP_END)** 两块空闲区域，使用 next 指针链接
 
-很明显, 用户态trap处理被拆分成了上下两部分, 为什么不把`trap_user_handler`和`trap_user_return`合并呢?
+**[A, B)** 的地址空间则完成页表映射，获得对应物理页，交给用户进程使用
 
-原因是这样的处理流程假设用户进程一开始就是在用户态的, 但是事实上用户进程出生在内核态
+使用完毕后，进程归还这块区域，两个 mmap_region 又合并为一个
 
-于是初生的用户进程进入用户态的路径是: `proc_make_first`->`trap_user_return`->`user_return`-> U-mode
+至此, mmap_region 的基本设想就完成了, 我们应该注意到一个问题
 
-所以必须把trap处理函数分成两部分以兼容这条分支路径
+mmap_region 这样的数据结构是要占据空间的，我们不可能在 proc_t 里面开辟一个 mmap_region_t 的数组
 
-### trap实现
+因为这样太不灵活 (数组设置为多大合适呢？ 会不会让 proc_t 太大呢?)
 
-trap的实现只需关注 **trampoline.S** 和 **trap_user.c** 这两个文件即可
+于是，我们可以考虑设置一个全局的 mmap_region_t 仓库，让有需要的进程向仓库申请，获得一个指针
 
-这两个文件里共有四个函数, 分别是上一节里提到的用户态陷阱处理流程的四个阶段
+这样，进程只需存储第一个 mmap_region 的指针即可，其他 mmap_region 可以通过 next 找到
 
-汇编部分的代码已经写好且有完整注释, 需要大家阅读理解
+新的问题是，我们的 mmap_region 仓库怎么组织呢?
 
-`trap_user_handler` 的实现与 `trap_kernel_handler` 非常类似, 大部分代码可以直接copy
+简单的方法是开辟一个数组，缺点是寻找可用的 mmap_region 会比较慢
 
-`trap_user_return` 的实现涉及很多寄存器和 **trapframe** 的操作, 确保你完全理解xv6的实现后完成
+我的建议是用链表组织 mmap_region 仓库，和物理内存管理的想法一样，还是头插法
 
-核心要义: 处理流程是前后照应的, 找到并关注那些前后对应的操作
+由于选择使用链表，所以需要在 mmap_region_t 上再加一层包装构成 mmap_region_node_t
 
-另外, 在 **initcode.c** 里, **proczero** 向操作系统发出了第一声啼哭
+你需要完成 `mmap_init()` `mmap_region_alloc()` `mmap_region_free()` 三个函数 (in mmap.c)
 
-也就是第一个系统调用请求, 你需要在 `trap_user_handler` 中进行响应
+## 测试三
 
-响应方式很简单 `printf("get a syscall from proc %d\n", myproc()->pid);`
+让我们测试仓库的可靠性
 
-由于我们的 syscall 机制还不完善, 所以只需做最简单的响应, 切勿画蛇添足!
+未了便于输出, 暂时将 N_MMAP 改为 64, 测试完后恢复
 
-你还需要简单测试用户态trap是否能和内核态trap一样正常工作
+```
+    volatile static int started = 0;
+    volatile static bool over_1 = false, over_2 = false;
+    volatile static bool over_3 = false, over_4 = false;
 
-## 总结
+    void* mmap_list[63];
 
-至此, 你应该明白第一个用户态进程是如何一步步构建起来的
+    int main()
+    {
+        int cpuid = r_tp();
 
-此外, 你还应该明白用户态trap处理是如何与进程的用户态内核态切换(尤其是syscall)联合起来的
+        if(cpuid == 0) {
+            
+            print_init();
+            printf("cpu %d is booting!\n", cpuid);
+            pmem_init();
+            kvm_init();
+            kvm_inithart();
+            trap_kernel_init();
+            trap_kernel_inithart();
+            
+            // 初始化 + 初始状态显示
+            mmap_init();
+            mmap_show_mmaplist();
+            printf("\n");
 
-最后, 你应该明白用户态trap和内核态trap的全部处理流程以及它们的异同点
+            __sync_synchronize();
+            started = 1;
 
-当第一个进程建立起来, 用户态和内核态的trap完全建立, 我们就可以做一些更复杂的工作了
+            // 申请
+            for(int i = 0; i < 32; i++)
+                mmap_list[i] = mmap_region_alloc();
+            over_1 = true;
 
-lab-4结束后, 你应当做一个阶段性整理以确保你完全理解目前你写的所有代码, 同时做更多代码正确性测试
+            // 屏障
+            while(over_1 == false ||  over_2 == false);
 
-后面我们将围绕进程这一概念, 完善进程管理模块和用户虚拟内存管理模块, 而trap的故事将告一段落
+            // 释放
+            for(int i = 0; i < 32; i++)
+                mmap_region_free(mmap_list[i]);
+            over_3 = true;
+
+            // 屏障
+            while (over_3 == false || over_4 == false);
+
+            // 查看结束时的状态
+            mmap_show_mmaplist();        
+
+        } else {
+
+            while(started == 0);
+            __sync_synchronize();
+            printf("cpu %d is booting!\n", cpuid);
+            kvm_inithart();
+            trap_kernel_inithart();
+
+            // 申请
+            for(int i = 32; i < 63; i++)
+                mmap_list[i] = mmap_region_alloc();
+            over_2 = true;
+
+            // 屏障
+            while(over_1 == false || over_2 == false);
+
+            // 释放
+            for(int i = 32; i < 63; i++)
+                mmap_region_free(mmap_list[i]);
+            over_4 = true;
+        }
+    
+        while (1);
+    }
+```
+
+第一次输出: node 从 1 顺序递增到 64, index 从 0 顺序递增到 63
+
+![图片](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-5/picture/01.png)
+
+第二次输出：除了 node 1, 输出由两组单调下降的index混合构成(32->1, 63->33)
+
+![图片](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-5/picture/02.png)
+
+## 任务四: mmap 与 munmap 的实现
+
+在上一个任务里，我们实现了 mmap_region_t 的仓库，可以通过 `alloc()` 和 `free()` 获取和释放相关资源
+
+让我们考虑如何使用这些资源实现 mmap 与 munmap 操作
+
+首先应该在 `proc_make_first()` 里初始化 proczero->mmap, 此时整个 mmap 区域都是可分配的
+
+随后加入本次实验最困难的部分, uvm.c 里的 `uvm_mmap()` 和 `uvm_munmap()`
+
+首先考虑这两个操作的共同点: 都要修改 **proc->mmap 链 + 用户页表**
+
+区别在于: `uvm_mmap()` 可能产生新的 **mmap_region**, `uvm_munmap()` 可能产生新的或合并已有的 **mmap_region**
+
+注意：我们希望尽可能利用 mmap_region 仓库的资源，所以能合并的 **mmap_region** 尽量合并
+
+这个任务的难点在于链表操作的多种可能性，建议你画图分析，力求不遗漏某种情况
+
+此外，针对合并问题，提供了一个 `mmap_merge()` 函数作为辅助
+
+最后，你需要添加对应的系统调用函数 `sys_mmap()` 和 `sys_munmap()`, 这部分并不困难
+
+## 测试四
+
+我们尽量给出能覆盖所有情况的测试用例，以检测`uvm_mmap()` 和 `uvm_munmap()`中可能的遗漏和错误
+
+```
+// in initcode.c
+#include "sys.h"
+
+// 与内核保持一致
+#define VA_MAX       (1ul << 38)
+#define PGSIZE       4096
+#define MMAP_END     (VA_MAX - 34 * PGSIZE)
+#define MMAP_BEGIN   (MMAP_END - 8096 * PGSIZE) 
+
+int main()
+{
+    // 建议画图理解这些地址和长度的含义
+
+    // sys_mmap 测试 
+    syscall(SYS_mmap, MMAP_BEGIN + 4 * PGSIZE, 3 * PGSIZE);
+    syscall(SYS_mmap, MMAP_BEGIN + 10 * PGSIZE, 2 * PGSIZE);
+    syscall(SYS_mmap, MMAP_BEGIN + 2 * PGSIZE,  2 * PGSIZE);
+    syscall(SYS_mmap, MMAP_BEGIN + 12 * PGSIZE, 1 * PGSIZE);
+    syscall(SYS_mmap, MMAP_BEGIN + 7 * PGSIZE, 3 * PGSIZE);
+    syscall(SYS_mmap, MMAP_BEGIN, 2 * PGSIZE);
+    syscall(SYS_mmap, 0, 10 * PGSIZE);
+
+    // sys_munmap 测试
+    syscall(SYS_munmap, MMAP_BEGIN + 10 * PGSIZE, 5 * PGSIZE);
+    syscall(SYS_munmap, MMAP_BEGIN, 10 * PGSIZE);
+    syscall(SYS_munmap, MMAP_BEGIN + 17 * PGSIZE, 2 * PGSIZE);
+    syscall(SYS_munmap, MMAP_BEGIN + 15 * PGSIZE, 2 * PGSIZE);
+    syscall(SYS_munmap, MMAP_BEGIN + 19 * PGSIZE, 2 * PGSIZE);
+    syscall(SYS_munmap, MMAP_BEGIN + 22 * PGSIZE, 1 * PGSIZE);
+    syscall(SYS_munmap, MMAP_BEGIN + 21 * PGSIZE, 1 * PGSIZE);
+
+    while(1);
+    return 0;
+}
+```
+
+你需要在在 `sys_mmap()` 和 `sys_munmap()` 中加入适当输出
+
+```
+    uvm_show_mmaplist(p->mmap);
+    vm_print(p->pgtbl);
+    printf("\n");
+```
+
+每次系统调用结束时都有一张 mmap_region 和页表的输出截图 (7 + 7), 见 picture 目录
+
+（图片太多, 无需在你的README里放出截图）
+
+## 任务五：页表的复制和销毁
+
+虽然目前我们只有一个进程且永不退出，但是需要为下一个实验做一些准备
+
+你需要完成页表复制和销毁的函数 `uvm_destroy_pgtbl()` 和 `uvm_copy_pgtbl()`
+
+需要提醒的是: 第一个函数考虑如何使用递归完成；第二个函数深入理解用户地址空间各个区域的特点
+
+## 测试五
+
+根据前四次测试的经验, 思考如何测试, 给出测试方案和结果截图

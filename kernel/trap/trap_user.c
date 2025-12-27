@@ -4,6 +4,7 @@
 #include "mem/vmem.h"
 #include "memlayout.h"
 #include "riscv.h"
+#include "syscall/syscall.h"
 
 // in trampoline.S
 extern char trampoline[];      // 内核和用户切换的代码
@@ -56,8 +57,10 @@ void trap_user_handler()
     } else {
         // Exception
         if (trap_id == 8) { // Environment call from U-mode
-            printf("get a syscall from proc %d\n", p->pid);
+            // printf("get a syscall from proc %d\n", p->pid);
             p->tf->epc += 4; // Skip ecall instruction
+            intr_on();
+            syscall();
         } else {
             printf("user exception: %s\n", exception_info[trap_id]);
             printf("sepc=%p stval=%p\n", sepc, stval);
