@@ -6,7 +6,7 @@
 #include "lib/print.h"
 #include "syscall/sysfunc.h"
 #include "syscall/syscall.h"
-
+#include "dev/timer.h"
 // 堆伸缩
 // uint64 new_heap_top 新的堆顶 (如果是0代表查询, 返回旧的堆顶)
 // 成功返回新的堆顶 失败返回-1
@@ -18,9 +18,9 @@ uint64 sys_brk()
     uint64 old_heap_top = p->heap_top;
 
     if(new_heap_top == 0) {
-        printf("look: heap_top = %p\n", p->heap_top);
-        vm_print(p->pgtbl);
-        printf("\n");
+        // printf("look: heap_top = %p\n", p->heap_top);
+        // vm_print(p->pgtbl);
+        // printf("\n");
         return old_heap_top;
     }
 
@@ -29,17 +29,17 @@ uint64 sys_brk()
             return -1;
         }
         p->heap_top = new_heap_top;
-        printf("grow: heap_top = %p\n", p->heap_top);
+        // printf("grow: heap_top = %p\n", p->heap_top);
     } else if(new_heap_top < old_heap_top) {
         uvm_heap_ungrow(p->pgtbl, old_heap_top, old_heap_top - new_heap_top);
         p->heap_top = new_heap_top;
-        printf("ungrow: heap_top = %p\n", p->heap_top);
+        // printf("ungrow: heap_top = %p\n", p->heap_top);
     } else {
-        printf("look: heap_top = %p\n", p->heap_top);
+        // printf("look: heap_top = %p\n", p->heap_top);
     }
 
-    vm_print(p->pgtbl);
-    printf("\n");
+    // vm_print(p->pgtbl);
+    // printf("\n");
 
     return p->heap_top;
 }
@@ -77,9 +77,9 @@ uint64 sys_mmap()
 
     uvm_mmap(start, npages, PTE_R | PTE_W | PTE_U);
 
-    uvm_show_mmaplist(p->mmap);
-    vm_print(p->pgtbl);
-    printf("\n");
+    // uvm_show_mmaplist(p->mmap);
+    // vm_print(p->pgtbl);
+    // printf("\n");
 
     return start;
 }
@@ -111,124 +111,71 @@ uint64 sys_munmap()
     return 0;
 }
 
-// copyin 测试 (int 数组)
+// 打印字符
 // uint64 addr
-// uint32 len
-// 返回 0
-uint64 sys_copyin()
+uint64 sys_print()
 {
-    proc_t* p = myproc();
+    // printf("%s", "sys_print called: ");
     uint64 addr;
-    uint32 len;
-
+    char buf[512];
     arg_uint64(0, &addr);
-    arg_uint32(1, &len);
-
-    int tmp;
-    for(int i = 0; i < len; i++) {
-        uvm_copyin(p->pgtbl, (uint64)&tmp, addr + i * sizeof(int), sizeof(int));
-        printf("get a number from user: %d\n", tmp);
-    }
-
+    proc_t *p = myproc();
+    uvm_copyin_str(p->pgtbl, (uint64)buf, addr, sizeof(buf));
+    printf("%s", buf);
     return 0;
 }
 
-// copyout 测试 (int 数组)
-// uint64 addr
-// 返回数组元素数量
-uint64 sys_copyout()
+// 进程复制
+uint64 sys_fork()
 {
-    int L[5] = {1, 2, 3, 4, 5};
-    proc_t* p = myproc();
-    uint64 addr;
-
-    arg_uint64(0, &addr);
-    uvm_copyout(p->pgtbl, addr, (uint64)L, sizeof(int) * 5);
-
-    return 5;
+    // printf("%s", "sys_fork called: ");
+    return proc_fork();
 }
 
-// copyinstr测试
-// uint64 addr
-// 成功返回0
-uint64 sys_copyinstr()
+// 进程等待
+// uint64 addr  子进程退出时的exit_state需要放到这里 
+uint64 sys_wait()
 {
-    char s[64];
+    // printf("%s", "sys_wait called: ");
+    uint64 addr;
+    arg_uint64(0, &addr);
+    return proc_wait(addr);
+}
 
-    arg_str(0, s, 64);
-    printf("get str from user: %s\n", s);
-
+// 进程退出
+// int exit_state
+uint64 sys_exit()
+{
+    // printf("%s", "sys_exit called: ");
+    int exit_state;
+    arg_uint32(0, (uint32*)&exit_state);
+    proc_exit(exit_state);
     return 0;
 }
 
-// 测试页表复制和销毁
-uint64 sys_test_vm()
+extern timer_t sys_timer;
+
+// 进程睡眠一段时间
+// uint32 second 睡眠时间
+// 成功返回0, 失败返回-1
+uint64 sys_sleep()
 {
-    proc_t* p = myproc();
+    // printf("%s", "sys_sleep called: ");
+    uint32 sec;
+    uint64 ticks0;
     
-    printf("Original Page Table:\n");
-    vm_print(p->pgtbl);
-    
-    // Allocate a new trapframe for the new process (simulated)
-    trapframe_t* new_tf = (trapframe_t*)pmem_alloc(true);
-    if (new_tf == NULL) panic("sys_test_vm: alloc tf failed");
-    memset(new_tf, 0, PGSIZE);
-
-    // Initialize new page table
-    pgtbl_t new_pgtbl = proc_pgtbl_init((uint64)new_tf);
-    if (new_pgtbl == NULL) panic("sys_test_vm: init pgtbl failed");
-    
-    printf("\nCopying Page Table...\n");
-    uvm_copy_pgtbl(p->pgtbl, new_pgtbl, p->heap_top, p->ustack_pages, p->mmap);
-    
-    printf("New Page Table:\n");
-    vm_print(new_pgtbl);
-    
-    // Verify Deep Copy
-    // Check initcode at CODE_TEXT_START
-    uint64 test_va = CODE_TEXT_START; 
-    pte_t* old_pte = vm_getpte(p->pgtbl, test_va, false);
-    pte_t* new_pte = vm_getpte(new_pgtbl, test_va, false);
-    
-    if (old_pte && new_pte && (*old_pte & PTE_V) && (*new_pte & PTE_V)) {
-        uint64 old_pa = PTE_TO_PA(*old_pte);
-        uint64 new_pa = PTE_TO_PA(*new_pte);
-        printf("Verification at VA %p:\n", test_va);
-        printf("Old PA: %p\n", old_pa);
-        printf("New PA: %p\n", new_pa);
-        
-        if (old_pa != new_pa) {
-            printf("Deep Copy Verified: Physical addresses are different.\n");
-            
-            bool match = true;
-            uint8* p1 = (uint8*)old_pa;
-            uint8* p2 = (uint8*)new_pa;
-            for(int i=0; i<PGSIZE; i++) {
-                if(p1[i] != p2[i]) {
-                    match = false;
-                    break;
-                }
-            }
-
-            if (match) {
-                printf("Content Verified: Content is identical.\n");
-            } else {
-                printf("Content Mismatch!\n");
-            }
-        } else {
-            printf("Deep Copy Failed: Physical addresses are same!\n");
-        }
-    } else {
-        printf("Verification Failed: PTE not valid at %p.\n", test_va);
+    arg_uint32(0, &sec);
+    if(sec < 0)
+        sec = 0;
+    spinlock_acquire(&sys_timer.lk);
+    ticks0 = sys_timer.ticks;
+    while(sys_timer.ticks - ticks0 < sec * 10){
+        // if(myproc()->killed){
+        //     spinlock_release(&sys_timer.lk);
+        //     return -1;
+        // }
+        proc_sleep(&sys_timer.ticks, &sys_timer.lk);
     }
-
-    printf("\nDestroying New Page Table...\n");
-    uvm_destroy_pgtbl(new_pgtbl);
-    
-    // Free the trapframe manually as uvm_destroy_pgtbl unmaps it but doesn't free it
-    pmem_free((uint64)new_tf, true);
-    
-    printf("Destroyed.\n");
-    
+    spinlock_release(&sys_timer.lk);
     return 0;
 }

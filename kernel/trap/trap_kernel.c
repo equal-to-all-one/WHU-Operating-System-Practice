@@ -111,6 +111,9 @@ void trap_kernel_handler()
         switch (trap_id) {
             case 1: // Supervisor software interrupt (Timer)
                 timer_interrupt_handler();
+                if(myproc() != NULL && myproc()->state == RUNNING) {
+                    proc_yield();
+                }
                 break;
             case 9: // Supervisor external interrupt (PLIC)
                 external_interrupt_handler();

@@ -46,6 +46,7 @@ void trap_user_handler()
         switch (trap_id) {
             case 1: // Supervisor software interrupt (Timer)
                 timer_interrupt_handler();
+                proc_yield();
                 break;
             case 9: // Supervisor external interrupt (PLIC)
                 external_interrupt_handler();

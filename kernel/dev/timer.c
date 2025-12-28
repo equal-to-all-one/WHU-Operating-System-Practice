@@ -3,6 +3,7 @@
 #include "dev/timer.h"
 #include "memlayout.h"
 #include "proc/cpu.h"
+#include "proc/proc.h"
 #include "riscv.h"
 
 /*-------------------- 工作在M-mode --------------------*/
@@ -57,7 +58,7 @@ void timer_init()
 /*--------------------- 工作在S-mode --------------------*/
 
 // 系统时钟
-static timer_t sys_timer;
+timer_t sys_timer;
 
 // 时钟创建(初始化系统时钟)
 void timer_create()
@@ -73,6 +74,7 @@ void timer_update()
     if (mycpuid() == 0) {
         spinlock_acquire(&sys_timer.lk);
         sys_timer.ticks++;
+        proc_wakeup(&sys_timer.ticks);
         // 每100个ticks打印一次 调试信息
         // if (sys_timer.ticks % 100 == 0) {
         //     printf("ticks: %d\n", sys_timer.ticks);

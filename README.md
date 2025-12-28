@@ -1,351 +1,252 @@
-#  LAB-5: 用户态虚拟内存管理 + 系统调用流程建立
-
-经历了痛苦的 trap 处理实验后，我们终于可以脱离 RISC-V 体系结构的一大堆寄存器，做一些纯粹的软件设计了
-
-这次实验我们还是围绕第一个用户态进程，关注它的地址空间(虚拟内存)以及它和内核的交互(系统调用)
-
-## 代码组织结构
-
+LAB-6: 进程管理模块
+代码组织结构
 ECNU-OSLAB
-├── **include**
+├── include
 │ ├── dev
 │ │ ├── timer.h
 │ │ ├── plic.h
 │ │ └── uart.h
 │ ├── lib
 │ │ ├── print.h
-│ │ ├── lock.h
+│ │ ├── lock.h (CHANGE) 新增睡眠锁
 │ │ └── str.h
 │ ├── proc
-│ │ ├── proc.h **(CHANGE)** proc_t 里增加 mmap 字段
+│ │ ├── proc.h (CHANGE) 完善进程管理
 │ │ ├── initcode.h
 │ │ └── cpu.h
 │ ├── mem
-│ │ ├── mmap.h **(NEW)**
+│ │ ├── mmap.h
 │ │ ├── pmem.h
-│ │ └── vmem.h **(CHANEG)** 增加 uvm.c 相关函数定义
+│ │ └── vmem.h
 │ ├── trap
 │ │ └── trap.h
 │ ├── syscall
-│ │ ├── syscall.h **(NEW)**
-│ │ ├── sysfunc.h **(NEW)**
-│ │ └── sysnum.h **(NEW)**
-│ ├── common.h
-│ ├── memlayout.h **(CHANGE)** 增加 mmap 相关地址
+│ │ ├── syscall.h
+│ │ ├── sysfunc.h (CHANGE) 新的系统调用
+│ │ └── sysnum.h (CHANGE) 新的系统调用
+│ ├── common.h (CHANGE) 增加NPROC定义
+│ ├── memlayout.h
 │ └── riscv.h
-├── **kernel**
+├── kernel
 │ ├── boot
-│ │ ├── main.c **(CHANGE)** 常规更新
+│ │ ├── main.c (CHANGE) 日常更新
 │ │ ├── start.c
 │ │ ├── entry.S
 │ │ └── Makefile
 │ ├── dev
 │ │ ├── uart.c
-│ │ ├── timer.c
+│ │ ├── timer.c (CHANGE) 系统时钟取消static
 │ │ ├── plic.c
 │ │ └── Makefile
 │ ├── lib
 │ │ ├── print.c
 │ │ ├── spinlock.c
+│ │ ├── sleeplock.c (TODO)
 │ │ ├── str.c
 │ │ └── Makefile
 │ ├── proc
 │ │ ├── cpu.c
-│ │ ├── proc.c **(CHANGE)** 进程初始化过程中增加 mmap 支持
+│ │ ├── proc.c (CHANGE) 这次实验的核心
 │ │ ├── swtch.S
 │ │ └── Makefile
 │ ├── mem
 │ │ ├── pmem.c
 │ │ ├── kvm.c
-│ │ ├── uvm.c **(TODO)**
-│ │ ├── mmap.c **(TODO)**
+│ │ ├── uvm.c
+│ │ ├── mmap.c
 │ │ └── Makefile
 │ ├── syscall
-│ │ ├── syscall.c **(TODO)**
-│ │ ├── sysfunc.c **(TODO)**
-│ │ └── Makefile **(NEW)**
+│ │ ├── syscall.c (CHANGE) 日常更新
+│ │ ├── sysfunc.c (CHANGE) 日常更新
+│ │ └── Makefile
 │ ├── trap
-│ │ ├── trap_kernel.c
-│ │ ├── trap_user.c **(CHANGE)** 系统调用响应
+│ │ ├── trap_kernel.c (CHANGE) 小修改
+│ │ ├── trap_user.c (CHANGE) 小修改
 │ │ ├── trap.S
 │ │ ├── trampoline.S
 │ │ └── Makefile
 │ ├── Makefile
 │ └── kernel.ld
-├── **user**
+├── user
 │ ├── syscall_arch.h
-│ ├── syscall_num.h **(CHANGE)** 与内核对齐
+│ ├── syscall_num.h (CHANGE) 日常更新
 │ ├── sys.h
-│ ├── initcode.c **(CHANGE)** 日常更新
+│ ├── initcode.c (CHANGE) 日常更新
 │ └── Makefile
 ├── Makefile
 └── common.mk
 
-**标记说明**
+标记说明
 
-1. **TODO** 本次新增的文件 + 其中有函数待实现 (核心部分)
-2. **NEW** 本次新增的文件 + 无需做修改 (辅助部分)
-3. **CHANGE** 本来就有的文件 + 需要做修改 或 助教做了修改 (整体兼容)
+TODO 本次新增的文件 + 其中有函数待实现 (核心部分)
 
-## 任务一: 用户态和内核态的数据迁移
+NEW 本次新增的文件 + 无需做修改 (辅助部分)
 
-在上一个实验中，我们设计了第一个最简单的系统调用 **sys_print**，它的作用就是让内核做出应答
+CHANGE 本来就有的文件 + 需要做修改 或 助教做了修改 (整体兼容)
 
-事实上，这并不是系统调用真正的模样。
+准备阶段
+系统调用的修改:这部分助教已经做好了
 
-系统调用的本质是用户给内核传递一个任务请求，内核完成用户的任务请求并返回。
+首先删去上一次的临时系统调用: sys_copyin() sys_copyout() sys_copyinstr()
 
-关键问题是信息如何在两者之间传递? 传递的方法分为两种：
+添加新的系统调用 sys_print() sys_fork() sys_exit() sys_wait() sys_sleep() 其中第一个也是临时的
 
-- 针对比较短的信息：直接放在约定好的寄存器 (如系统调用编号固定放在 a7 寄存器)
-- 针对比较长的信息: 如传递一个数组, 则可以把数组地址放在寄存器里, 内核根据用户页表和地址读出数组内容
+这次我们将完成进程管理模块, 主要是做两件事:
 
-同样，内核的返回值可以直接放在寄存器里，内核中太长的信息则直接写入用户地址空间
+进程调度:支持多进程轮流使用CPU(从单进程到多进程)
 
-短信息的传递我们使用 `arg_uint32()` `arg_uint64()` 之类的函数去做 (in syscall.c)
+进程生命周期:UNUSED RUNNABLE RUNNING SLEEPING ZOMBIE 五个状态的转换
 
-长信息的传递我们使用 `uvm_copyin()` `uvm_copyout()` `uvm_copystr()` 之类的函数去做 (in uvm.c)
+任务一: fork + exit + wait
+首先我们定义进程数组, 单进程时代的 proczero 变成指针而不再是具体的进程
 
-你的第一阶段任务是补全系统调用流程 (trap_user_handler -> syscall -> 各个系统调用处理函数)
+// 进程数组
+static proc_t procs[NPROC];
 
-第二阶段任务是完成上述三个数据迁移函数并理解其对应的系统调用函数做了什么事
+// 第一个进程的指针
+static proc_t* proczero;
 
-注意：这三个系统调用函数只是服务于下面的测试，并不通用
+// 全局的pid和保护它的锁 
+static int global_pid = 1;
+static spinlock_t lk_pid;
+由于要引入多个进程, 进程的定义在之前的基础上做了扩充
 
-## 测试一
-
-```
-// in initcode.c
-#include "sys.h"
-
-int main()
-{
-    int L[5];
-    char* s = "hello, world"; 
-    syscall(SYS_copyout, L);
-    syscall(SYS_copyin, L, 5);
-    syscall(SYS_copyinstr, s);
-    while(1);
-    return 0;
-}
-```
-
-实验效果：
-
-![图片](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-5/picture/03.png)
-
-## 任务二：用户堆空间的伸缩
-
-在上一次实验中, 我们初始化用户的堆顶为 **USER_BASE + PGSIZE**
-
-这意味着堆的实际空间为0，这次实验我们要尝试增加和缩减堆空间以满足用户的地址空间需求
-
-首先，你需要完成 `uvm_heap_grow` 和 `uvm_heap_ungrow` 这两个函数
-
-核心步骤就是对页表的映射和解映射操作，相信这不会太困难
-
-之后，你需要完成 `sys_brk` 系统调用函数
-
-## 测试二
-
-让我们测试 sys_brk 系统调用的正确性
-
-```
-// in initcode.c
-#include "sys.h"
-
-int main()
-{
-    long long heap_top = syscall(SYS_brk, 0);
-
-    heap_top = syscall(SYS_brk, heap_top + 4096 * 10);
-
-    heap_top = syscall(SYS_brk, heap_top - 4096 * 5);
-
-    while(1);
-    return 0;
-}
-```
-
-在sys_brk里面做适当输出, 显示最新的 heap_top 和 页表情况
-
-```
-    // "look" / "grow" / "ungrow"
-    printf("look: heap_top = %p\n", old_heap_top);
-    vm_print(p->pgtbl);
-    printf("\n");
-```
-
-![图片](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-5/picture/04.png)
-
-## 任务三: mmap_region_node 仓库管理
-
-之前给出的用户进程地址空间分布中只有堆和栈两个可变区域, 其中堆的管理已经完成，栈的管理是自动的
-
-考虑堆的缺陷：它是一块连续的地址空间，不适合零散的空间需求
-
-本质原因是它只维护了一个栈顶地址，无法记录多块地址空间
-
-什么数据结构更适合做这件事呢？ 毫无疑问是链表！
-
-我们首先划出一块虚拟地址空间 **[MMAP_BEGIN ~ MMAP_END)**, 这块区域位于堆和栈之间
-
-```
-typedef struct mmap_region {
-    uint64 begin;             // 起始地址
-    uint32 npages;            // 管理的页面数量
-    struct mmap_region* next; // 链表指针
-} mmap_region_t;
-```
-
-使用这样的数据结构标记一个未分配的 mmap_region
-
-进程初始化时 mmap_region 只有一块，它管理 **[MMAP_BEGIN ~ MMAP_END)** 整个区域
-
-此时如果来了一个空间申请 **[A, B)**, 则 第一个 mmap_region 分裂为两个
-
-分别管理 **[MMAP_BEGIN, A)** 和 **[B, MMAP_END)** 两块空闲区域，使用 next 指针链接
-
-**[A, B)** 的地址空间则完成页表映射，获得对应物理页，交给用户进程使用
-
-使用完毕后，进程归还这块区域，两个 mmap_region 又合并为一个
-
-至此, mmap_region 的基本设想就完成了, 我们应该注意到一个问题
-
-mmap_region 这样的数据结构是要占据空间的，我们不可能在 proc_t 里面开辟一个 mmap_region_t 的数组
-
-因为这样太不灵活 (数组设置为多大合适呢？ 会不会让 proc_t 太大呢?)
-
-于是，我们可以考虑设置一个全局的 mmap_region_t 仓库，让有需要的进程向仓库申请，获得一个指针
-
-这样，进程只需存储第一个 mmap_region 的指针即可，其他 mmap_region 可以通过 next 找到
-
-新的问题是，我们的 mmap_region 仓库怎么组织呢?
-
-简单的方法是开辟一个数组，缺点是寻找可用的 mmap_region 会比较慢
-
-我的建议是用链表组织 mmap_region 仓库，和物理内存管理的想法一样，还是头插法
-
-由于选择使用链表，所以需要在 mmap_region_t 上再加一层包装构成 mmap_region_node_t
-
-你需要完成 `mmap_init()` `mmap_region_alloc()` `mmap_region_free()` 三个函数 (in mmap.c)
-
-## 测试三
-
-让我们测试仓库的可靠性
-
-未了便于输出, 暂时将 N_MMAP 改为 64, 测试完后恢复
-
-```
-    volatile static int started = 0;
-    volatile static bool over_1 = false, over_2 = false;
-    volatile static bool over_3 = false, over_4 = false;
-
-    void* mmap_list[63];
-
-    int main()
-    {
-        int cpuid = r_tp();
-
-        if(cpuid == 0) {
-            
-            print_init();
-            printf("cpu %d is booting!\n", cpuid);
-            pmem_init();
-            kvm_init();
-            kvm_inithart();
-            trap_kernel_init();
-            trap_kernel_inithart();
-            
-            // 初始化 + 初始状态显示
-            mmap_init();
-            mmap_show_mmaplist();
-            printf("\n");
-
-            __sync_synchronize();
-            started = 1;
-
-            // 申请
-            for(int i = 0; i < 32; i++)
-                mmap_list[i] = mmap_region_alloc();
-            over_1 = true;
-
-            // 屏障
-            while(over_1 == false ||  over_2 == false);
-
-            // 释放
-            for(int i = 0; i < 32; i++)
-                mmap_region_free(mmap_list[i]);
-            over_3 = true;
-
-            // 屏障
-            while (over_3 == false || over_4 == false);
-
-            // 查看结束时的状态
-            mmap_show_mmaplist();        
-
-        } else {
-
-            while(started == 0);
-            __sync_synchronize();
-            printf("cpu %d is booting!\n", cpuid);
-            kvm_inithart();
-            trap_kernel_inithart();
-
-            // 申请
-            for(int i = 32; i < 63; i++)
-                mmap_list[i] = mmap_region_alloc();
-            over_2 = true;
-
-            // 屏障
-            while(over_1 == false || over_2 == false);
-
-            // 释放
-            for(int i = 32; i < 63; i++)
-                mmap_region_free(mmap_list[i]);
-            over_4 = true;
-        }
+typedef struct proc {
     
-        while (1);
-    }
-```
+    spinlock_t lk;           // 自旋锁
 
-第一次输出: node 从 1 顺序递增到 64, index 从 0 顺序递增到 63
+    /* 下面的五个字段需要持有锁才能修改 */
 
-![图片](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-5/picture/01.png)
+    int pid;                 // 标识符
+    enum proc_state state;   // 进程状态
+    struct proc* parent;     // 父进程
+    int exit_state;          // 进程退出时的状态(父进程可能关心)
+    void* sleep_space;       // 睡眠是在等待什么
 
-第二次输出：除了 node 1, 输出由两组单调下降的index混合构成(32->1, 63->33)
+    pgtbl_t pgtbl;           // 用户态页表
+    uint64 heap_top;         // 用户堆顶(以字节为单位)
+    uint64 ustack_pages;     // 用户栈占用的页面数量
+    mmap_region_t* mmap;     // 用户可映射区域的起始节点
+    trapframe_t* tf;         // 用户态内核态切换时的运行环境暂存空间
 
-![图片](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-5/picture/02.png)
+    uint64 kstack;           // 内核栈的虚拟地址
+    context_t ctx;           // 内核态进程上下文
+} proc_t;
+考虑到 xv6 中 killed 字段处理的复杂性, 我们暂时不声明和使用这个字段
 
-## 任务四: mmap 与 munmap 的实现
+在任务一中, 我们忽略 sleep_space 和进程的 SLEEPING 状态
 
-在上一个任务里，我们实现了 mmap_region_t 的仓库，可以通过 `alloc()` 和 `free()` 获取和释放相关资源
+考虑一个问题:为什么需要自旋锁保护这五个字段？
 
-让我们考虑如何使用这些资源实现 mmap 与 munmap 操作
+看起来任意进程在申请后应该是私有的, 不会出现并发错误
 
-首先应该在 `proc_make_first()` 里初始化 proczero->mmap, 此时整个 mmap 区域都是可分配的
+实际上进程也可能关心其他进程的某些字段, 你可以在xv6里面搜索 proc[NPROC], 可以找到很多遍历操作
 
-随后加入本次实验最困难的部分, uvm.c 里的 `uvm_mmap()` 和 `uvm_munmap()`
+这种遍历可能带来的错误是:进程A读取进程B的字段, 同时进程B修改这个字段, 构成读者写者问题
 
-首先考虑这两个操作的共同点: 都要修改 **proc->mmap 链 + 用户页表**
+于是, 我们在读和写这些字段的时候要先上锁(有例外情况, 出现例外的地方xv6给出了注释)
 
-区别在于: `uvm_mmap()` 可能产生新的 **mmap_region**, `uvm_munmap()` 可能产生新的或合并已有的 **mmap_region**
+在后面的函数实现过程中, 请多思考这个锁字段的使用
 
-注意：我们希望尽可能利用 mmap_region 仓库的资源，所以能合并的 **mmap_region** 尽量合并
+首先实现以下三个函数:
 
-这个任务的难点在于链表操作的多种可能性，建议你画图分析，力求不遗漏某种情况
+proc_init() 初始化一些全局变量, 设置kstack字段并调用 proc_free()
 
-此外，针对合并问题，提供了一个 `mmap_merge()` 函数作为辅助
+proc_alloc() 从进程数组里申请一个进程, 并申请资源和初始化一些字段
 
-最后，你需要添加对应的系统调用函数 `sys_mmap()` 和 `sys_munmap()`, 这部分并不困难
+proc_free() 向进程数组里归还一个进程, 并释放资源和清空一些字段
 
-## 测试四
+这三个函数是进程数组这一全局资源的控制函数, 因此将他们视为一组操作
 
-我们尽量给出能覆盖所有情况的测试用例，以检测`uvm_mmap()` 和 `uvm_munmap()`中可能的遗漏和错误
+然后需要考虑修改 proc_make_first()
 
-```
-// in initcode.c
+由于可以直接调用 proc_alloc(), 一些操作可以删去
+
+由于后面要引入调度器, proc_make_first() 无需调用 swtch(), 直接返回即可
+
+接着考虑如何从单进程到多进程, 难道每个进程都像 proczero 这样从零开始吗？
+
+更好的做法是使用 proc_fork() 函数进行复制, 主要是复制地址空间的五个字段
+
+这样产生的新进程被称为子进程, 而被它复制的进程称为父进程, 用 parent 字段标记
+
+于是, 可以发现各个进程会组成一个由 proczero 作为根节点的进程树
+
+这两个进程在用户态怎么区分呢？解决方案是让他们的返回值不同
+
+对于父进程, 它收到的返回值是子进程的pid, 通过函数返回做到
+
+对于子进程, 它收到的是0, 通过修改 p->tf->a0 做到
+
+完成 proc_fork() 后我们进入下一组函数:
+
+proc_wait() 等待子进程退出，调用 proc_free() 回收子进程
+
+proc_exit() 进程退出
+
+这三个函数构成一个常见的组合:
+
+int pid = fork(); // 分支
+
+if(pid == 0) { // 子进程
+    do something ...
+    exit(0);
+} else { // 父进程
+    int exit_state;
+    wait(&exit_state);
+    do something ....
+}
+这两个函数的实现过程会遇到两个问题:
+
+由于进程的树形结构，如果出现父进程退出但子进程没退出的情况该怎么办呢？
+
+在 proc_exit() 函数里调用 proc_reparent() 将当前进程的孩子托付给 proczero
+
+因为它是整棵进程树的根，是不会退出的
+
+由于 proc_wait() 函数是一个循环, 所以没等到子进程退出就会一直占用CPU
+
+所以添加一个新的函数 proc_yield(), 进程放弃CPU使用权进入调度
+
+这里就会引出调度函数 proc_sched() 和 proc_scheduler()
+
+这两个函数是调度的两个阶段:
+
+第一阶段:当前CPU的用户进程 -> CPU自己的进程(之前称之为高级进程)
+
+第二阶段:CPU自己的坚持 -> 被选中的新用户进程
+
+当占用CPU的进程是CPU自己的进程时, mycpu()->proc = NULL
+
+两个阶段的核心操作都是 swtch() 做上下文切换
+
+proc_sched() 需要做一些检查以确保切换的安全
+
+proc_scheduler() 需要挑选新的RUNNABLE用户进程, 这里采用各进程按顺序轮流执行的调度算法
+
+当调度器启动后, CPU自己的进程就被困在调度器里了(死循环), 它的上下文就是调度器的运行环境
+
+在 main() 的最后, 各个CPU的进程都会进入调度器, 并忠实地留在这里
+
+于是进程切换的过程:proc-1 -> CPU进程(调度器)-> proc-2
+
+于是我们可以总结出CPU自己的进程做的事:初始化OS各个模块, 然后作为用户进程调度器
+
+之后各个CPU的调度器会从进程数组里选择RUNNABLE的用户进程执行
+
+测试一
+当完成上述函数后, 请建立四个新的系统调用:
+
+sys_print 接受一个用户的字符串地址并输出
+
+sys_fork
+
+sys_wait
+
+sys_exit 接受一个用户的exit_state存储地址
+
+之后使用单个CPU执行这段 initcode.c 里的代码 (理解它在测试什么)
+
 #include "sys.h"
 
 // 与内核保持一致
@@ -354,53 +255,161 @@ mmap_region 这样的数据结构是要占据空间的，我们不可能在 proc
 #define MMAP_END     (VA_MAX - 34 * PGSIZE)
 #define MMAP_BEGIN   (MMAP_END - 8096 * PGSIZE) 
 
+char *str1, *str2;
+
 int main()
 {
-    // 建议画图理解这些地址和长度的含义
+    syscall(SYS_print, "\nuser begin\n");
 
-    // sys_mmap 测试 
-    syscall(SYS_mmap, MMAP_BEGIN + 4 * PGSIZE, 3 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN + 10 * PGSIZE, 2 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN + 2 * PGSIZE,  2 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN + 12 * PGSIZE, 1 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN + 7 * PGSIZE, 3 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN, 2 * PGSIZE);
-    syscall(SYS_mmap, 0, 10 * PGSIZE);
+    // 测试MMAP区域
+    str1 = (char*)syscall(SYS_mmap, MMAP_BEGIN, PGSIZE);
+    
+    // 测试HEAP区域
+    long long top = syscall(SYS_brk, 0);
+    str2 = (char*)top;
+    syscall(SYS_brk, top + PGSIZE);
 
-    // sys_munmap 测试
-    syscall(SYS_munmap, MMAP_BEGIN + 10 * PGSIZE, 5 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN, 10 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 17 * PGSIZE, 2 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 15 * PGSIZE, 2 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 19 * PGSIZE, 2 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 22 * PGSIZE, 1 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 21 * PGSIZE, 1 * PGSIZE);
+    str1[0] = 'M';
+    str1[1] = 'M';
+    str1[2] = 'A';
+    str1[3] = 'P';
+    str1[4] = '\n';
+    str1[5] = '\0';
+
+    str2[0] = 'H';
+    str2[1] = 'E';
+    str2[2] = 'A';
+    str2[3] = 'P';
+    str2[4] = '\n';
+    str2[5] = '\0';
+
+    int pid = syscall(SYS_fork);
+
+    if(pid == 0) { // 子进程
+        for(int i = 0; i < 100000000; i++);
+        syscall(SYS_print, "child: hello\n");
+        syscall(SYS_print, str1);
+        syscall(SYS_print, str2);
+
+        syscall(SYS_exit, 1);
+        syscall(SYS_print, "child: never back\n");
+    } else {       // 父进程
+        int exit_state;
+        syscall(SYS_wait, &exit_state);
+        if(exit_state == 1)
+            syscall(SYS_print, "parent: hello\n");
+        else
+            syscall(SYS_print, "parent: error\n");
+    }
 
     while(1);
     return 0;
 }
-```
+理想结果:
 
-你需要在在 `sys_mmap()` 和 `sys_munmap()` 中加入适当输出
+图片
 
-```
-    uvm_show_mmaplist(p->mmap);
-    vm_print(p->pgtbl);
-    printf("\n");
-```
+任务二: sleep + wakeup
+首先考虑之前的 proc_wait() proc_exit() 的实现有什么问题
 
-每次系统调用结束时都有一张 mmap_region 和页表的输出截图 (7 + 7), 见 picture 目录
+父进程在等待子进程退出时的行为是: 遍历所有进程, 发现子进程没退出则 proc_yield()
 
-（图片太多, 无需在你的README里放出截图）
+yield 之后父进程还是 RUNNABLE 的, 有可能被调度, 但是子进程退出前这样的调度没有意义
 
-## 任务五：页表的复制和销毁
+我们需要一种类似中断的机制: 当满足某一条件时执行父进程的代码
 
-虽然目前我们只有一个进程且永不退出，但是需要为下一个实验做一些准备
+于是我们引入睡眠和唤醒这两个函数
 
-你需要完成页表复制和销毁的函数 `uvm_destroy_pgtbl()` 和 `uvm_copy_pgtbl()`
+将 proc_wait() 中的 proc_yield() 换成 proc_sleep()
 
-需要提醒的是: 第一个函数考虑如何使用递归完成；第二个函数深入理解用户地址空间各个区域的特点
+在 proc_exit() 中使用 proc_wakeup_one() 主动唤醒父进程
 
-## 测试五
+对于 proc_sleep(), 我们可以暂时忽略它传入的锁, 只关心 sleep_space, 这个变量标记了睡眠原因
 
-根据前四次测试的经验, 思考如何测试, 给出测试方案和结果截图
+唤醒函数有两种, proc_wakeup_one() 只被 proc_exit() 调用, 它唤醒指定的单个进程
+
+proc_wakeup() 未来还会在其他地方调用, 它唤醒所有睡在 sleep_space 的进程
+
+举个例子, 如果多个进程竞争一个资源, 那么暂时没有获得这个资源的进程可以进入睡眠, 标记 sleep_space = 这种资源
+
+当使用资源的进程使用完毕后, 调用 proc_wakeup(资源) 唤醒所有等待这种资源的进程
+
+当你完成这这些函数后, proc.c 就完成了, 重新执行任务一的测试以确保睡眠和唤醒的正确性
+
+任务三: 睡眠锁
+进程的睡眠和唤醒可以用于设计睡眠锁, 睡眠锁和自旋锁的关系有点像中断和轮询的关系
+
+睡眠锁的核心是设置一个唤醒条件, 自旋锁的核心是不断测试一个条件
+
+typedef struct spinlock {
+    int locked;
+    char* name;
+    int cpuid;
+} spinlock_t;
+
+typedef struct sleeplock {
+    spinlock_t lk;
+    int locked;
+    char* name;
+    int pid;
+} sleeplock_t;
+比较这两种锁的定义, 可以发现睡眠锁是在自旋锁的基础上建立的
+
+自旋锁 = 开关中断 + 原子操作 + 轮询
+
+睡眠锁 = 自旋锁 + 睡眠唤醒
+
+睡眠锁中的自旋锁是用于确其它字段被正确并发访问(比如同时修改 locked 字段的操作)
+
+当睡眠锁被占用时, 进程调用 proc_sleep(睡眠锁) 进入睡眠状态, 同时等待睡眠锁
+
+当睡眠锁被释放时, 进程调用 proc_wakeup(睡眠锁) 唤醒等待睡眠锁的进程
+
+值得注意的是: proc_wakeup() 会唤醒所有等待者, 但是只有一个可以拿到资源
+
+其他等待者被唤醒后发现还是没有资源, 会再次睡眠等待, 这叫 "惊群效应"
+
+完成 sleeplock.c 中的四个函数
+
+睡眠锁在后面文件系统中用到, 这里不做测试
+
+任务四: 进程管理与时钟相关的部分
+首先考虑一个问题:
+
+如果一个恶意进程一直占用CPU而不调用 proc_yield() 或 proc_sleep()
+
+那么CPU事实上就被它独占了而其他进程只能一直等待
+
+为了避免这样的事情发生, 我们应该提供一种强制进程交出CPU使用权的机制
+
+可以利用时钟中断实现这件事：在发生时钟中断后调用 proc_yield()
+
+注意: 内核和用户的trap处理都涉及时钟, 内核trap处理在调度前要多做一些检查
+
+测试: 在调度器中添加一行输出, 打印被调度的进程编号
+
+执行如下 initcode
+
+#include "sys.h"
+
+int main()
+{
+    syscall(SYS_fork);
+    syscall(SYS_fork);
+
+    while(1);
+    return 0;
+}
+现象如下, 可以发现进程1没有独占CPU而是共享使用
+
+图
+
+考虑为什么产生了四个进程, 如果加一行 syscall(SYS_fork); 会是多少个呢
+
+tips: 在 debug 时, 建议注释掉时钟的 proc_yield(), 并使用单个CPU执行, 这样方便一些
+
+最后, 你还需要添加一个系统调用 sys_sleep() 它接收一个睡眠时间(要求以秒为单位)
+
+与系统时钟配合, 实现进程睡眠一段时间, 这部分由你参考xv6自己完成并测试(系统时钟取消static以被这里引用)
+
+这部分的实现可以帮助你理解 proc_sleep() 参数为什么要传入锁, 你应该去了解xv6是如何使用 sleep() 的

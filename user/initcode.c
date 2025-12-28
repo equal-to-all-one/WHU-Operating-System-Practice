@@ -1,6 +1,4 @@
 #include "sys.h"
-// in initcode.c
-#include "sys.h"
 
 // 与内核保持一致
 #define VA_MAX       (1ul << 38)
@@ -8,29 +6,26 @@
 #define MMAP_END     (VA_MAX - 34 * PGSIZE)
 #define MMAP_BEGIN   (MMAP_END - 8096 * PGSIZE) 
 
-void start()
+char *str1, *str2;
+
+int start()
 {
-    // 建议画图理解这些地址和长度的含义
+    int pid = syscall(SYS_fork);
 
-    // sys_mmap 测试 
-    syscall(SYS_mmap, MMAP_BEGIN + 4 * PGSIZE, 3 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN + 10 * PGSIZE, 2 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN + 2 * PGSIZE,  2 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN + 12 * PGSIZE, 1 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN + 7 * PGSIZE, 3 * PGSIZE);
-    syscall(SYS_mmap, MMAP_BEGIN, 2 * PGSIZE);
-    syscall(SYS_mmap, 0, 10 * PGSIZE);
-
-    // sys_munmap 测试
-    syscall(SYS_munmap, MMAP_BEGIN + 10 * PGSIZE, 5 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN, 10 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 17 * PGSIZE, 2 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 15 * PGSIZE, 2 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 19 * PGSIZE, 2 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 22 * PGSIZE, 1 * PGSIZE);
-    syscall(SYS_munmap, MMAP_BEGIN + 21 * PGSIZE, 1 * PGSIZE);
-
-    syscall(SYS_test_vm);
+    if (pid == 0) {
+        syscall(SYS_print, "Child (pid 2): sleeping for 2 seconds...\n");
+        syscall(SYS_sleep, 2);
+        syscall(SYS_print, "Child (pid 2): woke up!\n");
+        syscall(SYS_exit, 0);
+    } else {
+        syscall(SYS_print, "Parent (pid 1): sleeping for 4 seconds...\n");
+        syscall(SYS_sleep, 4);
+        syscall(SYS_print, "Parent (pid 1): woke up!\n");
+        int exit_state;
+        syscall(SYS_wait, &exit_state);
+        syscall(SYS_print, "Parent: child exited, test done.\n");
+    }
 
     while(1);
+    return 0;
 }

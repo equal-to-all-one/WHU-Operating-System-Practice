@@ -148,9 +148,11 @@ void kvm_init()
     vm_mappages(kernel_pgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 
     // 映射 kstack
-    void *kstack_pa = pmem_alloc(true);
-    if(kstack_pa == NULL) panic("kvm_init: kstack alloc failed");
-    vm_mappages(kernel_pgtbl, KSTACK(0), (uint64)kstack_pa, PGSIZE, PTE_R | PTE_W);
+    for(int i = 0; i < NPROC; i++) {
+        void *kstack_pa = pmem_alloc(true);
+        if(kstack_pa == NULL) panic("kvm_init: kstack alloc failed");
+        vm_mappages(kernel_pgtbl, KSTACK(i), (uint64)kstack_pa, PGSIZE, PTE_R | PTE_W);
+    }
 }
 
 // 使用新的页表，刷新TLB
