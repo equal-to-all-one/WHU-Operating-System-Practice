@@ -1,3 +1,6 @@
 *.o
 *.d
 kernel-qemu
+
+fs.img
+mkfs/mkfs

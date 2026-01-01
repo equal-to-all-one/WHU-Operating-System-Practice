@@ -1,8 +1,8 @@
 #include "fs/fs.h"
 #include "fs/buf.h"
 #include "fs/bitmap.h"
-#include "fs/inode.h"
-#include "fs/dir.h"
+// #include "fs/inode.h"
+// #include "fs/dir.h"
 #include "lib/str.h"
 #include "lib/print.h"
 
