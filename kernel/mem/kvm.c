@@ -18,6 +18,9 @@ static pgtbl_t kernel_pgtbl; // 内核页表
 // 提示：使用 VA_TO_VPN PTE_TO_PA PA_TO_PTE
 pte_t* vm_getpte(pgtbl_t pgtbl, uint64 va, bool alloc)
 {
+    if(pgtbl == NULL) // 用于文件系统的virtio.c
+        pgtbl = kernel_pgtbl;
+
     // Sv39 虚拟地址必须小于 VA_MAX 
     if (va >= VA_MAX)
         panic("vm_getpte: va >= VA_MAX");
@@ -135,6 +138,7 @@ void kvm_init()
 
     // 映射硬件设备
     vm_mappages(kernel_pgtbl, UART_BASE, UART_BASE, PGSIZE, PTE_R | PTE_W);
+    vm_mappages(kernel_pgtbl, VIRTIO_BASE, VIRTIO_BASE, PGSIZE, PTE_R | PTE_W);
     vm_mappages(kernel_pgtbl, CLINT_BASE, CLINT_BASE, CLINT_SIZE, PTE_R | PTE_W);
     vm_mappages(kernel_pgtbl, PLIC_BASE, PLIC_BASE, PLIC_SIZE, PTE_R | PTE_W);
 

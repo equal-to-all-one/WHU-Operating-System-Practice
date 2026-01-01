@@ -7,6 +7,7 @@
 #include "dev/timer.h"
 #include "dev/uart.h"
 #include "proc/proc.h"
+#include "dev/vio.h"
 volatile static int started = 0;
 
 int main()
@@ -24,6 +25,7 @@ int main()
         trap_kernel_init();
         trap_kernel_inithart();
         mmap_init();
+        virtio_disk_init();
         proc_init();
         timer_create();
         intr_on();

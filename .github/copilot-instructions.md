@@ -1,75 +1,69 @@
 # GitHub Copilot Instructions for ECNU-OSLAB
 
 This repository contains a RISC-V Operating System kernel for the ECNU OS Lab.
-**Current Focus: Lab 6 - Process Management (Scheduling, Fork/Exit/Wait)**
+**Current Focus: Lab 7 - File System & Device Drivers (VirtIO, Buffer Cache)**
 
 ## 🧠 Project Architecture & Context
 
 - **Core Architecture**: RISC-V 64-bit (`riscv64`).
 - **Boot Flow**:
-  1. `kernel/boot/entry.S`: `_entry` (M-mode entry point, sets up stack).
-  2. `kernel/boot/start.c`: `start()` (Configures M-mode, delegates traps, switches to S-mode).
+  1. `kernel/boot/entry.S`: `_entry` (M-mode entry point).
+  2. `kernel/boot/start.c`: `start()` (Configures M-mode, switches to S-mode).
   3. `kernel/boot/main.c`: `main()` (Kernel initialization, starts scheduler).
-- **Process Management** (`kernel/proc/`):
-  - `proc.c`: Process lifecycle (`fork`, `exit`, `wait`), scheduler (`proc_scheduler`), and state transitions.
-  - `swtch.S`: Context switching assembly (`swtch`).
-  - `cpu.c`: CPU-local storage management (`mycpu`, `myproc`).
-  - `include/proc/proc.h`: `struct proc`, `struct context`, `struct trapframe`, and `enum proc_state`.
-- **System Calls** (`kernel/syscall/`):
-  - `syscall.c`: Dispatcher (`syscall()`) and argument retrieval (`arg_raw`, `arg_int`).
-  - `sysfunc.c`: Implementation of syscalls (`sys_fork`, `sys_exit`, etc.).
-  - `sysnum.h`: System call numbers.
-- **Memory Management** (`kernel/mem/`):
-  - `pmem.c`: Physical memory allocator.
-  - `kvm.c`: Kernel page tables.
-  - `uvm.c`: User page tables and data copying (`uvm_copyin`, `uvm_copyout`).
-  - `mmap.c`: Memory mapping support.
+- **File System Stack** (Bottom-Up):
+  1.  **Device Driver** (`kernel/dev/virtio.c`): VirtIO block device driver. Handles disk I/O via MMIO and interrupts.
+  2.  **Buffer Cache** (`kernel/fs/buf.c`): Caches disk blocks in memory. Uses `buf_t` with sleeplocks.
+  3.  **Bitmap** (`kernel/fs/bitmap.c`): Manages free/used disk blocks.
+  4.  **File System** (`kernel/fs/fs.c`): Inodes, directories, and file operations.
+- **Process Management** (`kernel/proc/`): `proc.c`, `swtch.S`, `cpu.c`.
+- **Memory Management** (`kernel/mem/`): `pmem.c`, `kvm.c` (maps VirtIO MMIO), `uvm.c`.
+- **Traps**: `trap_kernel.c` (handles disk interrupts), `trap_user.c`.
 
 ## 🛠 Development Workflow
 
 ### Build & Run
-- **Build Kernel**: `make build` (Recursive make system).
-- **Run in QEMU**: `make qemu` (Starts QEMU with `kernel-qemu`).
+- **Build All**: `make build` (Builds kernel, user programs, and `mkfs`).
+- **Run QEMU**: `make qemu` (Runs kernel with `fs.img` attached).
 - **Debug**: `make qemu-gdb` (Starts QEMU halted on port 26000).
   - *VS Code Task*: `xv6build` runs `docker exec oslab make qemu-gdb`.
+- **File System Image**: `mkfs/mkfs.c` compiles to `mkfs/mkfs`, which generates `fs.img`.
 
 ### Key Commands
 - Clean: `make clean`
 
 ## 📝 Coding Conventions
 
-- **Headers**: All header files are in `include/`. Use relative paths like `#include "lib/print.h"`.
-- **Printing**: Use `printf()` from `lib/print.h` for kernel logging.
+- **Headers**: Use relative paths like `#include "fs/buf.h"`.
+- **Printing**: `printf()` from `lib/print.h`.
 - **Concurrency**:
-  - Use `spinlock_t` (`lib/spinlock.c`) for shared data.
-  - `wait_lock` (in `proc.c`) protects parent/child relationships and wait/exit logic.
-  - `lk_pid` protects global PID allocation.
-  - Always acquire `p->lk` before changing `p->state`.
-- **Current Context**:
-  - `mycpu()`: Returns pointer to current `struct cpu`.
-  - `myproc()`: Returns pointer to current `struct proc` (interrupt safe).
-- **User/Kernel Data**:
-  - Never dereference user pointers directly. Use `uvm_copyin`/`uvm_copyout` or `arg_*` helpers.
+  - **Spinlocks**: `spinlock_t` (`lib/spinlock.c`) for short critical sections (e.g., `lk_buf_cache`).
+  - **Sleeplocks**: `sleeplock_t` (`lib/sleeplock.c`) for long operations (e.g., disk I/O). `buf_t` uses `slk`.
+  - **Locking Order**: Acquire `lk_buf_cache` to find a buffer, then acquire `b->slk` to use it. Release `lk_buf_cache` after getting `b->slk`.
+- **Buffer Cache**:
+  - `buf_read(block_num)`: Returns a locked buffer.
+  - `buf_write(b)`: Writes buffer to disk.
+  - `buf_release(b)`: Releases buffer lock and decrements ref count.
+- **VirtIO**:
+  - Uses MMIO registers defined in `virtio.h`.
+  - `virtio_disk_rw(b, write)`: Performs the actual I/O.
 
 ## ⚠️ Common Pitfalls & Patterns
 
-- **Process State Transitions**:
-  - Valid transitions: `UNUSED` -> `RUNNABLE` (alloc), `RUNNABLE` <-> `RUNNING` (sched), `RUNNING` -> `SLEEPING` (sleep), `RUNNING`/`RUNNABLE` -> `ZOMBIE` (exit).
-  - Must hold `p->lk` when modifying state.
-- **Context Switching**:
-  - `swtch` saves callee-saved registers (`s0`-`s11`, `ra`, `sp`).
-  - `scheduler()` runs on the per-CPU scheduler stack, not a process kernel stack.
-- **Trap Handling**:
-  - `trap_user.c`: Handles traps from user mode (syscalls, page faults).
-  - `trap_kernel.c`: Handles traps from kernel mode.
-  - `trampoline.S`: Code mapped at the same high address in user and kernel page tables for trap entry/exit.
-- **Address Spaces**:
-  - Kernel runs in high memory (virtual).
-  - User processes have their own page tables (`p->pagetable`).
+- **Buffer Locking**:
+  - A buffer returned by `buf_read` is **locked** (`sleeplock`). You must release it with `buf_release`.
+  - Do not hold `spinlock` while sleeping (waiting for disk I/O).
+- **Disk Interrupts**:
+  - Disk interrupts trigger `virtio_disk_intr()`, which wakes up processes waiting on buffers.
+- **Memory Mapping**:
+  - `kvm.c` maps the VirtIO MMIO region so the kernel can access device registers.
+- **TODOs**:
+  - Implement `buf_read`, `buf_write`, `buf_release` in `kernel/fs/buf.c`.
+  - Implement file system logic in `kernel/fs/fs.c` and `kernel/fs/bitmap.c`.
 
 ## 📂 Key File Locations
 
-- **Process Struct**: `include/proc/proc.h`
-- **Scheduler**: `kernel/proc/proc.c`
-- **Syscall Dispatch**: `kernel/syscall/syscall.c`
-- **Trap Vector**: `kernel/trap/trap.S` & `trampoline.S`
+- **Buffer Cache**: `kernel/fs/buf.c`, `include/fs/buf.h`
+- **Disk Driver**: `kernel/dev/virtio.c`, `include/dev/virtio.h`
+- **File System**: `kernel/fs/fs.c`, `include/fs/fs.h`
+- **Bitmap**: `kernel/fs/bitmap.c`
+- **Make Tool**: `mkfs/mkfs.c`

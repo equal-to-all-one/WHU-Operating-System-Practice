@@ -25,6 +25,9 @@ typedef enum {false = 0, true = 1} bool;
 #define PGSIZE 4096    // 物理页大小
 #define NPROC 64       // 最大进程数量
 #define CODE_TEXT_START 0x1000 // 进程代码段起始地址
+
+#define BLOCK_SIZE 1024      // 磁盘的block大小 
+
 // 辅助宏
 
 #define MAX(a,b) ((a) > (b) ? (a) : (b)) // 取大

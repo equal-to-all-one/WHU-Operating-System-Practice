@@ -7,6 +7,7 @@
 #include "syscall/sysfunc.h"
 #include "syscall/syscall.h"
 #include "dev/timer.h"
+#include "fs/buf.h"
 // 堆伸缩
 // uint64 new_heap_top 新的堆顶 (如果是0代表查询, 返回旧的堆顶)
 // 成功返回新的堆顶 失败返回-1

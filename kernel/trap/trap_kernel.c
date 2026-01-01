@@ -2,6 +2,7 @@
 #include "dev/timer.h"
 #include "dev/uart.h"
 #include "dev/plic.h"
+#include "dev/vio.h"
 #include "trap/trap.h"
 #include "proc/cpu.h"
 #include "memlayout.h"
@@ -70,6 +71,8 @@ void external_interrupt_handler()
     int irq = plic_claim();
     if (irq == UART_IRQ) {
         uart_intr();
+    } else if (irq == VIRTIO_IRQ) {
+        virtio_disk_intr();
     } else if (irq) {
         printf("unexpected interrupt irq=%d\n", irq);
     }

@@ -7,6 +7,7 @@
 #include "common.h"
 #include "memlayout.h"
 #include "riscv.h"
+#include "fs/fs.h"
 
 /*----------------外部空间------------------*/
 
@@ -48,9 +49,22 @@ static int alloc_pid()
 // 释放锁 + 调用 trap_user_return
 static void fork_return()
 {
+    static bool first = true;
     // 由于调度器中上了锁，所以这里需要解锁
     proc_t* p = myproc();
     spinlock_release(&p->lk);
+
+    if (first) {
+        // File system initialization must be run in the context of a
+        // regular process (e.g., because it calls sleep), and thus cannot
+        // be run from main().
+        first = false;
+        fs_init();
+        
+        // ensure other cores see first=0.
+        __sync_synchronize();
+    }
+
     trap_user_return();
 }
 
