@@ -1,17 +1,19 @@
-LAB-7: 文件系统 之 底层设备
-代码组织结构
+# LAB-8: 文件系统 之 上层抽象
+
+## 代码组织结构
+
 ECNU-OSLAB
-├── include
+├── **include**
 │ ├── dev
-│ │ ├── virtio.h (NEW)
-│ │ ├── vio.h (NEW)
+│ │ ├── virtio.h
+│ │ ├── vio.h
 │ │ ├── timer.h
 │ │ ├── plic.h
 │ │ └── uart.h
 │ ├── lib
 │ │ ├── print.h
 │ │ ├── lock.h
-│ │ └── str.h
+│ │ └── str.h **(CHANGE)** 新增strlen
 │ ├── proc
 │ │ ├── proc.h
 │ │ ├── initcode.h
@@ -21,26 +23,28 @@ ECNU-OSLAB
 │ │ ├── pmem.h
 │ │ └── vmem.h
 │ ├── fs
-│ │ ├── buf.h (NEW)
-│ │ ├── fs.h (NEW)
-│ │ └── bitmap.h (NEW)
+│ │ ├── buf.h
+│ │ ├── fs.h
+│ │ ├── dir.h **(NEW)**
+│ │ ├── inode.h **(NEW)**
+│ │ └── bitmap.h **(CHANGE)** 考虑到和目录的一致性, inode_num改为uint16
 │ ├── trap
 │ │ └── trap.h
 │ ├── syscall
 │ │ ├── syscall.h
 │ │ ├── sysfunc.h
 │ │ └── sysnum.h
-│ ├── common.h (CHANGE) 新增全局变量BLOCK_SIZE
-│ ├── memlayout.h (CHANGE) 新增磁盘驱动相关定义
+│ ├── common.h
+│ ├── memlayout.h
 │ └── riscv.h
-├── kernel
+├── **kernel**
 │ ├── boot
-│ │ ├── main.c (CHANGE) 日常更新
+│ │ ├── main.c
 │ │ ├── start.c
 │ │ ├── entry.S
 │ │ └── Makefile
 │ ├── dev
-│ │ ├── virtio.c (NEW)
+│ │ ├── virtio.c
 │ │ ├── uart.c
 │ │ ├── timer.c
 │ │ ├── plic.c
@@ -49,406 +53,537 @@ ECNU-OSLAB
 │ │ ├── print.c
 │ │ ├── spinlock.c
 │ │ ├── sleeplock.c
-│ │ ├── str.c
+│ │ ├── str.c **(CHANGE)** 新增strlen
 │ │ └── Makefile
 │ ├── proc
 │ │ ├── cpu.c
-│ │ ├── proc.c (CHANGE) 修改fork_return()
+│ │ ├── proc.c
 │ │ ├── swtch.S
 │ │ └── Makefile
 │ ├── mem
 │ │ ├── pmem.c
-│ │ ├── kvm.c (CHANGE) 内核页表添加磁盘地址映射
+│ │ ├── kvm.c
 │ │ ├── uvm.c
 │ │ ├── mmap.c
 │ │ └── Makefile
 │ ├── fs
-│ │ ├── buf.c (TODO)
-│ │ ├── fs.c (TODO)
-│ │ ├── bitmap.c (TODO)
-│ │ └── Makefile (NEW)
+│ │ ├── buf.c
+│ │ ├── fs.c **(CHANGE)** 日常更新
+│ │ ├── bitmap.c **(CHANGE)** 考虑到和目录的一致性, inode_num改为uint16
+│ │ ├── inode.c **(TODO)**
+│ │ ├── dir.c **(TODO)**
+│ │ └── Makefile
 │ ├── syscall
 │ │ ├── syscall.c
 │ │ ├── sysfunc.c
 │ │ └── Makefile
 │ ├── trap
-│ │ ├── trap_kernel.c (CHANGE) 增加磁盘中断处理
+│ │ ├── trap_kernel.c
 │ │ ├── trap_user.c
 │ │ ├── trap.S
 │ │ ├── trampoline.S
 │ │ └── Makefile
 │ ├── Makefile
 │ └── kernel.ld
-├── mkfs
-│ ├── mkfs.c (NEW)
-│ └── Makefile (NEW)
-├── user
+├── **mkfs**
+│ ├── mkfs.c **(CHANGE)** 日常更新
+│ └── Makefile
+├── **user**
 │ ├── syscall_arch.h
 │ ├── syscall_num.h
 │ ├── sys.h
-│ ├── type.h (NEW)
+│ ├── type.h
 │ ├── initcode.c
 │ └── Makefile
-├── Makefile (CHANGE) 支持mkfs
+├── Makefile
 └── common.mk
 
-标记说明
+## 实验概况
 
-TODO 本次新增的文件 + 其中有函数待实现 (核心部分)
+在上一次实验中, 我们做了三件事:
 
-NEW 本次新增的文件 + 无需做修改 (辅助部分)
+- 磁盘创建 (mkfs.c)
+- 磁盘驱动 (virtio.c)
+- 磁盘的底层管理 (buf.c fs.c bitmap.c)
 
-CHANGE 本来就有的文件 + 需要做修改 或 助教做了修改 (整体兼容)
+对于上层来说, 本质是在内存中提供了一个虚拟磁盘, 使得上层不用关心磁盘驱动和磁盘硬件
 
-实验概览
-到目前为止, 我们已经完成了6次实验, 你应该注意到一件事: 一切操作都发生在内存和寄存器里
+只需通过buf.c和bitmap.c提供的接口即可管理磁盘, 很明显, 这部分和文件系统没有太大联系
 
-然而内存通常是易失性存储, 我们需要在断电后仍能长期保持数据的方法
+这一次我们将在上一次实验的基础上, 完成文件系统里最重要的元数据管理: inode 和 dirent
 
-从本次实验开始, 我们将引入外存的概念: qemu为我们提供了磁盘的抽象
+首先做一些小的修补: 增加strlen函数获取字符串长度; 修改bitmap里inode的部分, 使得返回值变成uint16
 
-首先要在 QEMUOPTS 中添加文件系统映像和磁盘块设备的选项
+这次实验可以分为四个步骤:
 
-QEMUOPTS += -drive file=$(FS_IMG),if=none,format=raw,id=x0
-QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
-它会把一个名为 $(FS_IMG) 的文件作为操作系统的文件系统映像装入QEMU模拟的虚拟磁盘
+1. 理解 mkfs.c 做了哪些事情, 和上次相比, 磁盘发生了什么变化
+2. 完成 inode.c 里面的函数, 理解 "磁盘里的inode与内存里的inode" "inode元数据与数据"
+3. 完成 dir.c 里的第一部分, 理解 "目录" 这种结构化文件的构成和管理
+4. 完成 dir.c 里的第二部分, 理解文件路径是如何确定 inode 的
 
-这是文件系统故事的起点
+## step-1: 磁盘中根目录的建立
 
-实验一: 理解磁盘映像的制作过程
-$(FS_IMG) 这个磁盘映像是怎么来的呢? 它的秘密都在 mkfs 文件夹下的 mkfs.c 文件中
+上一次实验中, 磁盘只有 superblock 区域做了设置, 其他区域全部都是0
 
-磁盘在文件系统角度可以理解为一个以 block 为读写单位的大数组
+这一次, 我们添加了根目录 (根目录没有名字, inode_num也是确定的, 这里设为0)
 
-在我们的构想中, 磁盘的布局是这样的:
+这意味着会申请一个inode管理这个目录 (修改inode bitmap)
 
-disk layout: [ super block | inode bitmap | inode blocks | data bitmap | data blocks ]
-super block 包括磁盘和磁盘上文件系统的重要元数据
+inode region 区域有一个inode会被赋值 (元数据区域)
 
-inode bitmap 标记 inode blocks 区域里各个 inode 的分配情况 (0:可分配 1:已分配)
+还会申请一个block用于存放更目录的数据： "." 和 ".." 这两个目录项 (修改block bitmap)
 
-inode blocks 这个区域由若干连续的 inode 组成
+## step-2: inode的管理
 
-data bitmap 标记 data blocks 区域里各个 block 的分配情况 (0:可分配 1:已分配)
+inode的管理模式和之前大家见过的 mmap_region, proc, buf 都是类似的
 
-data blocks 这个区域由若干连续的 block 组成
+```
+// 内存中的inode资源 + 保护它的锁
+#define N_INODE 32
+static inode_t icache[N_INODE];
+static spinlock_t lk_icache;
+```
 
-在本次实验中, 你不需要关心 inode 的结构, 只需当它是一种数据格式即可
+声明一个全局的资源仓库, 并向外部提供申请和释放资源的接口
 
-也不需要关心文件等上层概念, 你只需要关心三件事情: block 的读写、super block、bitmap
+出于简化考虑, 仓库的组织形式和procs仓库一致, 采用数组的形式组织
 
-mkfs.c 会填写 super block 中的信息, 其他四个区域会全部填写为 0
+inode_init()函数负责仓库的初始化
 
-这个非常简单的磁盘映像就制作完毕了
+```
+typedef struct inode {
+    // 磁盘里的inode信息 (由slk保护)
+    uint16 type;                // inode 管理的文件类型
+    uint16 major;               // 设备文件使用: 主设备号
+    uint16 minor;               // 设备文件使用: 次设备号
+    uint16 nlink;               // 链接数量 (nlink个文件名链接到这个inode)
+    uint32 size;                // 文件大小 (字节)
+    uint32 addrs[N_ADDRS];      // 文件存储在哪些block里 (分为一级 二级 三级)
 
-实验二: 磁盘驱动
-磁盘映像制作好了, 但是我们还没有办法读写它, 好在 QEMU 为我们提供了一套读写虚拟磁盘的方法
+    // 内存里的inode信息
+    uint16 inode_num;           // inode序号
+    uint32 ref;                 // 引用数 (由lk_icache保护)
+    bool valid;                 // 上述磁盘里inode字段的有效性 (由slk保护)
+    sleeplock_t slk;            // 睡眠锁
+} inode_t;
+```
 
-磁盘驱动的实现涉及三个部分:
+这里给出了inode的结构体定义, 基本和xv6保持一致, 去除了我们暂时用不到的 dev 字段
 
-virtio.c 这个文件定义了磁盘的数据结构, 由于非常复杂且涉及硬件规范, 所以助教已经给出完整代码
+在本次实验中 major + minor + nlink 字段也几乎不会使用
 
-你只需要了解它为上层提供的接口即可
+字段的具体含义和用法建议阅读xv6的注释和说明书, 尤其需要关注slk和lk_icache的使用, 这里不做详细介绍
 
-kvm.c 和 PLIC、CLINT、UART一样, 由于使用了内存映射寄存器, 需要在内核页表中加入virtio的映射
+可以看到, inode的定义分为了两部分: 磁盘里的字段(inode_disk_t in mkfs.c) + 内存里新加的字段
 
-trap_kernel.c 和时钟中断、UART中断一样, virtio 也需要在中断发生时调用中断响应函数
+首先关注磁盘里的字段, 当这些字段被修改后, 需要在特定时机写回磁盘, 以保证磁盘和内存的一致性
 
-virtio.c 里和xv6有一点不一样 (215到219行) 由于不使用 kvmpa(), 所以需要为 vm_getpte() 增加一条规则
+在申请一个空闲的inode时, 也需要把磁盘里的inode读入以初始化这些磁盘里的字段
 
-当传入的 pgtbl == NULL 时, 意味着默认使用 kernel_pgtbl, 需要你实现这件事
+所以需要完成 inode_rw() 函数来做让磁盘和内存同步的工作 (使用buf.c提供的接口)
 
-当你阅读 virtio.c 这个文件时, 你会发现它不是完全独立的, 它依赖一个叫 buf_t 的数据结构, 这个 buf_t 是做什么的呢?
+inode_alloc() inode_create() inode_free() 这组函数是申请和释放inode资源使用的
 
-实验三: buf层的实现 (困难)
-首先你应该考虑一个问题：读写磁盘到底是一个什么过程呢?
+申请资源分为两种情况:
 
-第一步应该是主机向磁盘发送一个读请求, 这个请求应该包括两个信息: 要读取的block序号 + 读到的内容放到内存中何处
+1. 确定磁盘里有inode-x: 那么直接申请一个空闲inode并把它的inode_num设为x即可 (先不从磁盘读出)
 
-第二步应该是磁盘响应请求并完成数据传递任务
+   或者在查询过程中发现icache命中了这个inode, 那么直接返回这个inode即可
 
-第三步应该是主机查看内存中读到的数据, 可能做一些修改
+2. 创建一个磁盘里没有的inode-x: 那么icache不可能命中, 首先申请一个空闲inode (磁盘和内存都要申请),
 
-如果做了修改, 第四步应该要写回磁盘
+   赋值成你想要的样子, 随后写入磁盘, 最后返回这个inode即可
 
-从内存的角度考虑, 需要在内存里开辟一段空间(BLOCK_SIZE大小)用于暂存磁盘里读入的block
+第一种情况应该调用 inode_alloc(inode_num) 第二种情况应该调用inode_create(type, major, minor)
 
-同时还需要记录这块空间对应哪个磁盘里的block
+释放资源也分为两种情况:
 
-于是, 我们可以设计一个名为 buf_t 的数据结构
+1. 只是在内存里释放这个inode: inode->ref 减到 0, 代表这个 inode 进入可分配状态
+2. 在磁盘里也要删除这个inode: 需要调用 inode_destroy() 释放这个 inode 在磁盘占用的空间
 
-typedef struct buf {
-    /* 
-        睡眠锁: 保护 data[BLOCK_SIZE] + disk
-        block_num + buf_ref 由 lk_buf_cache保护
-    */
-    sleeplock_t slk;
+这两种情况都是调用 inode_free() 完成, 只需要在内部做一个判断即可
 
-    uint32 block_num; // 对应的磁盘block编号
-    uint8  data[BLOCK_SIZE]; // block数据的缓存
+你应该注意到一件事: 和buf不用, 申请得到的inode资源是不上锁的, 释放inode资源时也不必持有锁
+
+所以还需要一组 inode_lock() 和 inode_unlock() 函数负责上锁和解锁
+
+其中 inode_lock() 还需要检查 valid 字段, 判断是否需要从磁盘读入inode来更新内存里的inode
+
+最后, 为了使用方便, 还提供了一个 inode_unlock_free() 函数一口气解锁和释放inode
+
+完成这些函数后, inode元数据的管理基本成型, 下面关心inode的数据管理
+
+inode 里的 size 和 addrs 字段服务于数据管理
+
+首先解释addrs数组的结构:
+
+- 最前面的 N_ADDRS_1 个元素直接存放 block_num (一级映射)
+
+- 中间的 N_ADDRS_2 个元素存放的 block_num 不是数据block, 而是索引block
+
+  索引block由连续的entry构成, 每个entry存放一个block_num (二级映射)
+
+- 最后的 N_ADDRS_3 个元素存放的是索引block的索引block (三级映射)
+
+逻辑上接近之前用过的页表
+
+出于简化考虑, 这个 “页表” 只会顺序增大, 不会出现删除和不连续的情况
+
+从文件角度理解: 只有read和write操作, 没有delete操作
+
+首先你需要完成 inode_locate_block() 函数, 它负责把逻辑上的inode第bn块block转换成
+
+物理上的磁盘第bx个block, 如果bn不存在(比现有的最大bn大1), 则申请新的block并返回block_num
+
+你可以使用助教提供的locate_block()函数帮助完成这个函数, 理解它的逻辑并考虑传入什么参数
+
+完成 inode_locate_block() 后, 可以动手实现 inode_read_data() 和 inode_write_data()
+
+他们会用到 inode_locate_block() 和 buf.c 提供的接口
+
+最后需要完成 inode_data_free(), 负责释放所有inode管理的数据区域, data_free()会提供帮助
+
+完成这部分后, inode的数据管理也成型了, 让我们做一些测试
+
+## test-1: inode的创建与删除
+
+```
+    // in fs_init()
+
+    // inode初始化
+    inode_init();
+
+    // 原本就存在的inode
+    inode_t* ip = inode_alloc(INODE_ROOT);
+    inode_lock(ip);
+    inode_print(ip);
+    inode_unlock(ip);
+    bitmap_print(sb.inode_bitmap_start);
+
+    // 创建新的inode
+    inode_t* nip = inode_create(FT_FILE, 0, 0);
+    inode_lock(nip);
+    inode_print(nip);
+    inode_unlock(nip);
+    bitmap_print(sb.inode_bitmap_start);
+
+    // 尝试删除inode
+    inode_lock(nip);
+    nip->nlink = 0;
+    inode_unlock_free(nip);
+    bitmap_print(sb.inode_bitmap_start);
+```
+
+理想的测试结果如图:
+
+![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/01.png)
+
+## test-2: inode简单读写
+
+```
+    // in fs.c fs_init()
+    // 在函数外声明两个个大小为 2*BLOCK_SIZE 的数组 str 和 tmp
+    // blockcmp 函数负责比较两个大小为 2*BLOCK_SIZE 的空间是否完全一样
+
+    // inode初始化
+    inode_init();
+    uint32 ret = 0;
+
+    for(int i = 0; i < BLOCK_SIZE * 2; i++)
+        str[i] = i;
+
+    // 创建新的inode
+    inode_t* nip = inode_create(FT_FILE, 0, 0);
+    inode_lock(nip);
     
-    uint32 buf_ref; // 还有多少处引用没有释放 
-    bool disk;      // 在磁盘驱动中使用
+    // 第一次查看
+    inode_print(nip);
 
-} buf_t;
-除了我们提到的 block_num 和 data 字段, 这里还有其他三个字段
+    // 第一次写入
+    ret = inode_write_data(nip, 0, BLOCK_SIZE / 2, str, false);
+    assert(ret == BLOCK_SIZE / 2, "inode_write_data: fail");
 
-disk 字段是 virtio.c 用到的, 我们不用关心
+    // 第二次写入
+    ret = inode_write_data(nip, BLOCK_SIZE / 2, BLOCK_SIZE + BLOCK_SIZE / 2, str + BLOCK_SIZE / 2, false);
+    assert(ret == BLOCK_SIZE +  BLOCK_SIZE / 2, "inode_write_data: fail");
 
-slk 字段出现说明 buf_t 是存在竞争的, 有并发风险
+    // 一次读取
+    ret = inode_read_data(nip, 0, BLOCK_SIZE * 2, tmp, false);
+    assert(ret == BLOCK_SIZE * 2, "inode_read_data: fail");
 
-buf_ref 字段用于记录有多少处引用还没有释放, 为上层服务
+    // 第二次查看
+    inode_print(nip);
+    
+    inode_unlock_free(nip);
 
-和 mmap_region_t 一样, 我们需要把 buf_t 这种资源组织成全局的仓库
+    // 测试
+    if(blockcmp(tmp, str) == true)
+        printf("success");
+    else
+        printf("fail");
 
-// 将buf包装成双向循环链表的node
-typedef struct buf_node {
-    buf_t buf;
-    struct buf_node* next;
-    struct buf_node* prev;
-} buf_node_t;
+    while (1); 
+```
 
-// buf cache
-static buf_node_t buf_cache[N_BLOCK_BUF];
-static buf_node_t head_buf; // ->next 已分配 ->prev 可分配
-static spinlock_t lk_buf_cache; // 这个锁负责保护 链式结构 + buf_ref + block_num
-组织结构是双向循环链表, 以 head_buf 为链表的头节点, buf_cache 里的节点作为可分配回收的资源节点
+理想的测试结果如下:
 
-为了抽象链表的操作, 助教提供了 insert_head() 函数, 它负责从从链表里抽出一个 buf_node_t,
+![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/02.png)
 
-然后插入 head_buf.next 或者 head_buf.prev, 在后面的 init() read() release() 函数中均有使用
+## test-3: inode大量读写
 
-对于 buf_init() 函数, 它负责三个 static 的数据结构的初始化, 以及双向循环链表的组织
+```
+    // in fs_init()
+    // 在函数外声明三个大小为BLOCK_SIZE的数组 str, tmp, empty
+    // blockcmp 函数负责比较两个大小为BLOCK_SIZE的空间是否完全一样
 
-剩下的三个函数通常会组合使用:
+    // inode初始化
+    inode_init();
+    uint32 ret = 0;
 
-but_t* buf = buf_read(block_num);
-do something on buf->data ......
-buf_write(buf);
-but_release(buf);
-为了充分利用内存里的 buf, 我们计划采用 LRU 算法和 lazy write 策略
+    for(int i = 0; i < BLOCK_SIZE; i++) {
+        str[i] = i;
+        empty[i] = 0;
+    }
 
-首先解释 LRU 算法, 这里有一个简单的示意图:
-
-图片
-
-图片可以分为三个部分: head_buf + buf_ref > 0 的 LRU 链 + buf_ref = 0 的 LRU 链
-
-head_buf 是置身事外的, 它只用稳定当好一个不被分配回收的 head 即可
-
-head_buf.next 是 buf_ref 字段大于 0 (即有人正在使用) 的 buf_t 构成的 LRU 链
-
-head_buf.prev 是 buf_ref 字段等于 0 (即无人正在使用) 的 buf_t 构成的 LRU 链
-
-越靠近 head_buf 的 buf 越新, 也就最近经常访问的; 越远离 head_buf 的 buf 越老, 也就是最近没怎么访问的
-
-buf_ref = 0 的 buf 如果被访问(buf_read), 就会成为 buf_head.next, 同时 buf_ref++
-
-buf_ref > 0 的 buf 如果被访问(buf_read), 就会成为 buf_head.next, 同时 buf_ref++
-
-buf_ref == 1 的 buf 如果被释放(buf_release), 就会成为 buf_head.prev, 同时 buf_ref = 0
-
-如果需要一个空闲(buf_ref == 0)的 buf, 那么会选择 buf_ref == 0 的那条 LRU 链里最老的 buf (虚线上面)
-
-通过这套逻辑, 我们可以保证 buf 的使用效率保持在较高水平
-
-接下来解释 lazy write:
-
-在前面提到的三个函数组合中, buf_write() 并不总是必要的, 尽管你可能修改了 buf->data
-
-原因在于访问某个 block 时, buf_read() 会首先检查在 buf_cache 里是否存在最新的副本
-
-如果存在就直接使用这个副本的数据而不去磁盘找, 因此你的修改是生效了的
-
-只需在特定时机(比如文件要关闭了)或者 buf_cache 空间不足时把这个 block 写回磁盘即可
-
-这样做可以减少写磁盘的次数
-
-至此, 你已经了解了 buf 层需要做的事情, 尝试实现 buf.c 中的函数
-
-需要注意的两点:
-
-存在两种锁, lk_buf_cache 和 buf->slk, 考虑如何使用它们
-
-考虑如何在 buf_read() 和 buf_release() 中实现上述两种策略
-
-实验四: super block 的读取及文件系统初始化
-这部分的工作分为两个步骤：
-
-使用刚刚完成的 buf 层函数, 在 fs.c 中读取磁盘里的 super block 并填写到内存里的 super_block_t 数据结构中
-
-由于 buf 层的操作涉及睡眠锁, 所以文件系统的初始化建立在进程的基础上, 第一个进程的 fork_return() 是一个很好的时机
-
-实验五: bitmap 的管理
-bitmap 是一种非常经典的文件系统管理方法, 它使用一块区域的每一个 bit 标记某种资源是否被占用
-
-在实验一提到的磁盘布局中, 我们用到了两块 bitmap (出于简化考虑, 它们各占1个block)
-
-当我们申请一个 data block 或 inode 时, 对应 bitmap 的一个 bit 被置为 1
-
-当我们释放一个 data block 或 inode 时, 对应 bitmap 的对应 bit 被置为 0
-
-你需要在 bitmap.c 里完成这件事, 你应该理解要做什么, 这里也会用到 buf 层的函数
-
-测试前的系统调用准备
-本次测试新增的系统调用都是临时性的, 不是长期使用的, 进入下一个实验前应该删去
-
-另外, 为考验大家是否理解系统调用过程, 本次和系统调用测试相关的代码没有直接给出, 需要你手动添加
-
-这里给出了 sysfunc.c 中需要添加的系统调用函数
-
-此外, 为了测试方便, 需要将 buf 的数量临时改为6
-
-extern super_block_t sb;
-
-// 申请一个block
-// 返回申请到的block的序号
-uint64 sys_alloc_block()
-{
-    uint32 ret = bitmap_alloc_block();
-    bitmap_print(sb.data_bitmap_start); 
-    return ret;
-}
-
-// 释放一个block
-// uint32 block_num 要释放的block序号
-// 成功返回0
-uint64 sys_free_block()
-{
-    uint32 block_num;
-    arg_uint32(0, &block_num);
-    bitmap_free_block(block_num);
+    // 创建新的inode
+    inode_t* nip = inode_create(FT_FILE, 0, 0);
+    inode_lock(nip);
+    
+    // 第一次查看
+    inode_print(nip);
     bitmap_print(sb.data_bitmap_start);
-    return 0;
-}
 
-// 测试 buf_read
-// uint32 block_num 要被读取的block序号
-// uint64 addr 内容放入用户的这个地址
-// 成功返回buf的地址
-uint64 sys_read_block()
-{
-    uint32 block_num;
-    uint64 addr;
-    arg_uint32(0, &block_num);
-    arg_uint64(1, &addr);
+    uint32 max_blocks =  N_ADDRS_1 + N_ADDRS_2 * ENTRY_PER_BLOCK + 2 * ENTRY_PER_BLOCK;
 
-    buf_t* buf = buf_read(block_num);
-    uvm_copyout(myproc()->pgtbl, addr, (uint64)(buf->data), 128);
-    return (uint64)buf;
-}
-
-// 修改block
-// uint64 buf_addr buf的地址
-// uint64 write_addr 用户希望写入的数据地址
-// 返回0
-uint64 sys_write_block()
-{
-    uint64 buf_addr, write_addr;
-    arg_uint64(0, &buf_addr);
-    arg_uint64(1, &write_addr);
-
-    buf_t* buf = (buf_t*)(buf_addr);
-    uvm_copyin(myproc()->pgtbl, (uint64)(buf->data), write_addr, 128);
-
-    return 0;
-}
-
-// 测试 buf_release
-// uint64 buf_addr buf的地址
-uint64 sys_release_block()
-{
-    uint64 buf_addr;
-    arg_uint64(0, &buf_addr);
-
-    buf_t* buf = (buf_t*)(buf_addr);
-    buf_release(buf);
-    
-    return 0;
-}
-
-// 测试 buf_print
-uint64 sys_show_buf()
-{
-    buf_print();
-    return 0;
-}
-测试一: bitmap
-    #include "sys.h"
-    #include "type.h"
-
-    int main()
+    for(uint32 i = 0; i < max_blocks; i++)
     {
-        uint32 block_num_1 = syscall(SYS_alloc_block);
-        uint32 block_num_2 = syscall(SYS_alloc_block);
-        uint32 block_num_3 = syscall(SYS_alloc_block);
-        syscall(SYS_free_block, block_num_2);
-        syscall(SYS_free_block, block_num_1);
-        syscall(SYS_free_block, block_num_3);
-        
-        while(1);
-        return 0;
+        ret = inode_write_data(nip, i * BLOCK_SIZE, BLOCK_SIZE, str, false);
+        assert(ret == BLOCK_SIZE, "inode_write_data fail");
     }
-这个测试关心 bitmap.c 中的 bit 操作是否正确
-
-理想的输出参见 ./picture/bitmap.png
-
-测试二: buf
-#include "sys.h"
-#include "type.h"
-
-int main()
-{
-    char buf[128];
-    uint64 buf_in_kernel[10];
-
-    // 初始状态:读了sb并释放了buf
-    syscall(SYS_print, "\nstate-1:");
-    syscall(SYS_show_buf);
+    ret = inode_write_data(nip, (max_blocks - 2) * BLOCK_SIZE, BLOCK_SIZE, empty, false);
+    assert(ret == BLOCK_SIZE, "inode_write_data fail");
     
-    // 耗尽所有 buf
-    for(int i = 0; i < 6; i++) {
-        buf_in_kernel[i] = syscall(SYS_read_block, 100 + i, buf);
-        buf[i] = 0xFF;
-        syscall(SYS_write_block, buf_in_kernel[i], buf);
-    }
-    syscall(SYS_print, "\nstate-2:");
-    syscall(SYS_show_buf);
+    // 第二次查看
+    inode_print(nip);
 
-    // 测试是否会触发buf_read里的panic,测试完后注释掉(一次性)
-    // buf_in_kernel[0] = syscall(SYS_read_block, 0, buf);
+    // 区域-1
+    ret = inode_read_data(nip, BLOCK_SIZE, BLOCK_SIZE, tmp, false);
+    assert(ret == BLOCK_SIZE, "inode_read_data fail");
+    assert(blockcmp(tmp, str), "check-1 fail");
+    printf("check-1 success\n");
 
+    // 区域-2
+    ret = inode_read_data(nip, N_ADDRS_1 * BLOCK_SIZE, BLOCK_SIZE, tmp, false);
+    assert(ret == BLOCK_SIZE, "inode_read_data fail");
+    assert(blockcmp(tmp, str), "check-2 fail");
+    printf("check-2 success\n");
 
-    // 释放两个buf-4 和 buf-1，查看链的状态
-    syscall(SYS_release_block, buf_in_kernel[3]);
-    syscall(SYS_release_block, buf_in_kernel[0]);
-    syscall(SYS_print, "\nstate-3:");
-    syscall(SYS_show_buf);
+    // 区域-3
+    ret = inode_read_data(nip, (max_blocks - 2) * BLOCK_SIZE, BLOCK_SIZE, tmp, false);
+    assert(ret == BLOCK_SIZE, "inode_read_data fail");
+    assert(blockcmp(tmp, empty), "check-2 fail");
+    printf("check-3 success\n");
 
-    // 申请buf,测试LRU是否生效 + 测试103号block的lazy write
-    buf_in_kernel[6] = syscall(SYS_read_block, 106, buf);
-    buf_in_kernel[7] = syscall(SYS_read_block, 103, buf);
-    syscall(SYS_print, "\nstate-4:");
-    syscall(SYS_show_buf);
+    // 释放inode管理的所有data block
+    inode_free_data(nip);
+    printf("free success\n");
 
-    // 释放所有buf
-    syscall(SYS_release_block, buf_in_kernel[7]);
-    syscall(SYS_release_block, buf_in_kernel[6]);
-    syscall(SYS_release_block, buf_in_kernel[5]);
-    syscall(SYS_release_block, buf_in_kernel[4]);
-    syscall(SYS_release_block, buf_in_kernel[2]);
-    syscall(SYS_release_block, buf_in_kernel[1]);
-    syscall(SYS_print, "\nstate-5:");
-    syscall(SYS_show_buf);
+    // 第三次观察
+    inode_print(nip);
+    bitmap_print(sb.data_bitmap_start);
 
-    while(1);
-    return 0;
+    inode_unlock_free(nip);
+    
+    while (1);
+```
+
+理想的测试结果如下:
+
+![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/03.png)
+
+## step-3: 目录项管理
+
+inode管理的实现想必并不轻松, 因为它结构复杂, 功能强大, 是核心的元数据结构
+
+而目录项管理这部分更接近 bitmap 的管理, 难度并不大
+
+目录是一种特殊的结构化文件, 它由若干目录项 (directroy entry 简称 dirent) 组成
+
+```
+typedef struct dirent {
+    uint16 inode_num;
+    char name[DIR_NAME_LEN];
+} dirent_t;
+```
+
+目录在磁盘和内存的定义是一样的, 由 inode_num 和 目录名 两部分组成
+
+本质是表征从目录名到inode_num的单向映射关系(一个目录名对应一个inode, 一个inode可以有多个目录名)
+
+一个inode可以有多个目录名涉及链接的问题(nlink), 在下一次实验中详细展开
+
+这里我们还做了一个简化假设: 目录文件只能管理一个block(32个entry), 只有addrs[0]是有效的
+
+目录项管理包括三个函数: dir_search_entry() dir_add_entry() dir_delete_entry()
+
+他们的含义可以参考注释, 实现后需要做一个测试
+
+## test-4: 目录项操作
+
+```
+    // in fs_init()
+
+    // inode初始化
+    inode_init();
+
+    // 获取根目录
+    inode_t* ip = inode_alloc(INODE_ROOT);    
+    inode_lock(ip);
+
+    // 第一次查看
+    dir_print(ip);
+    
+    // add entry
+    dir_add_entry(ip, 1, "a.txt");
+    dir_add_entry(ip, 2, "b.txt");
+    dir_add_entry(ip, 3, "c.txt");
+    
+    // 第二次查看
+    dir_print(ip);
+
+    // 第一次检查
+    assert(dir_search_entry(ip, "b.txt") == 2, "error-1");
+
+    // delete entry
+    dir_delete_entry(ip, "a.txt");
+   
+    // 第三次查看
+    dir_print(ip);
+    
+    // add entry
+    dir_add_entry(ip, 1, "d.txt");    
+    
+    // 第四次查看
+    dir_print(ip);
+    
+    // 第二次检查
+    assert(dir_add_entry(ip, 4, "d.txt") == BLOCK_SIZE, "error-2");
+    
+    inode_unlock(ip);
+
+    printf("over");
+
+    while (1); 
+```
+
+理想的测试结果:
+
+![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/04.png)
+
+## step-4: 文件路径处理
+
+所谓文件路径, 指的是由一串文件和目录构成的结构化信息, 如"/user/work/hello.txt"
+
+这里面包含了 根目录 user目录 work目录 和 hello.txt文件
+
+在本次实验中, 所有路径都是绝对路径, 也就是从根目录出发的路径
+
+我们需要提供两个接口函数: path_to_inode() 和 path_to_pinode()
+
+```
+// 找到path对应的inode
+inode_t* path_to_inode(char* path)
+{
+    char name[DIR_NAME_LEN];
+    return search_inode(path, name, false);
 }
-这个测试关心 buf.c 是否正常工作, 以及之前提到的 LRU 策略和 lazy write 策略是否正常执行
 
-理想的测试结果放在 ./picture/buf_test-1(1).png 和 buf_test-1(2).png 中
+// 找到path对应的inode的父节点
+// path最后的目录名放入name指向的空间
+inode_t* path_to_pinode(char* path, char* name)
+{
+    return search_inode(path, name, true);
+}
+```
 
-总结
-本次实验我们完成了磁盘的基本管理, 理解了 super block 和 bitmap 的作用, 以及 buf 层的缓冲设计
+它们都依赖 `search_inode()` 提供路径到inode的解析能力
 
-下一次实验我们会真正进入文件系统, 理解 inode、目录项、文件、路径等概念并实现它们, 做好准备迎接更大的挑战吧
+可以预测到, `search_inode()` 的核心操作是 循环或递归 + 路径字符串剥离 + dir_search_entry()
+
+其中字符串剥离函数已经给出 `skip_elements()`, 理解它的用法, 不必深究它的实现细节
+
+实现 `search_inode()` 后, 我们进行最后一个测试
+
+## test-5: 路径解析
+
+```
+    // in fs_init()
+
+    // inode初始化
+    inode_init();
+
+    // 创建inode
+    inode_t* ip = inode_alloc(INODE_ROOT);
+    inode_t* ip_1 = inode_create(FT_DIR, 0, 0);
+    inode_t* ip_2 = inode_create(FT_DIR, 0, 0);
+    inode_t* ip_3 = inode_create(FT_FILE, 0, 0);
+
+    // 上锁
+    inode_lock(ip);
+    inode_lock(ip_1);
+    inode_lock(ip_2);
+    inode_lock(ip_3);
+
+    // 创建目录
+    dir_add_entry(ip, ip_1->inode_num, "user");
+    dir_add_entry(ip_1, ip_2->inode_num, "work");
+    dir_add_entry(ip_2, ip_3->inode_num, "hello.txt");
+    
+    // 填写文件
+    inode_write_data(ip_3, 0, 11, "hello world", false);
+
+    // 解锁
+    inode_unlock(ip_3);
+    inode_unlock(ip_2);
+    inode_unlock(ip_1);
+    inode_unlock(ip);
+
+    // 路径查找
+    char* path = "/user/work/hello.txt";
+    char name[DIR_NAME_LEN];
+    inode_t* tmp_1 = path_to_pinode(path, name);
+    inode_t* tmp_2 = path_to_inode(path);
+
+    assert(tmp_1 != NULL, "tmp1 = NULL");
+    assert(tmp_2 != NULL, "tmp2 = NULL");
+    printf("\nname = %s\n", name);
+
+    // 输出 tmp_1 的信息
+    inode_lock(tmp_1);
+    inode_print(tmp_1);
+    inode_unlock_free(tmp_1);
+
+    // 输出 tmp_2 的信息
+    inode_lock(tmp_2);
+    inode_print(tmp_2);
+    char str[12];
+    str[11] = 0;
+    inode_read_data(tmp_2, 0, tmp_2->size, str, false);
+    printf("read: %s\n", str);
+    inode_unlock_free(tmp_2);
+
+    printf("over");
+    while (1); 
+```
+
+理想的测试结果如图:
+
+![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/05.png)
+
+## 总结
+
+本次实验我们完成了 inode 和 dirent 的管理, 已经具备了提出文件 (file) 这一概念的基本条件
+
+在下一次实验(最后一次), 我们将完成 file 相关的抽象, 完成完整的文件系统并提供相关系统调用
+
+还需整合各个模块, 实现最终的内核

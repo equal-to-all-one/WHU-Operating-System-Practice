@@ -39,3 +39,13 @@ int strncmp(const char *p, const char *q, uint32 n)
       return 0;
     return (uint8)*p - (uint8)*q;
 }
+
+
+int strlen(const char *str)
+{
+  int n;
+
+  for(n = 0; str[n]; n++)
+    ;
+  return n;
+}
