@@ -4,6 +4,10 @@
 #include "common.h"
 #include "mem/mmap.h"
 #include "lib/lock.h"
+
+// Forward declaration
+struct inode;
+
 // 页表类型定义
 typedef uint64* pgtbl_t;
 // mmap_region定义

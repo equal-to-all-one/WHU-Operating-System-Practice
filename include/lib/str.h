@@ -7,4 +7,5 @@ void   memset(void* begin, uint8 data, uint32 n);
 void*   memmove(void* vdst, const void* vsrc, uint32 n);
 int    strncmp(const char *p, const char *q, uint32 n);
 int    strlen(const char *str);
+char*   strncpy(char *s, const char *t, int n);
 #endif

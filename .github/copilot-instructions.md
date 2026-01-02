@@ -1,7 +1,7 @@
 # GitHub Copilot Instructions for ECNU-OSLAB
 
 This repository contains a RISC-V Operating System kernel for the ECNU OS Lab.
-**Current Focus: Lab 7 - File System & Device Drivers (VirtIO, Buffer Cache)**
+**Current Focus: Lab 8 - File System High-Level Abstraction (Inodes, Directories, Path Resolution)**
 
 ## 🧠 Project Architecture & Context
 
@@ -10,14 +10,16 @@ This repository contains a RISC-V Operating System kernel for the ECNU OS Lab.
   1. `kernel/boot/entry.S`: `_entry` (M-mode entry point).
   2. `kernel/boot/start.c`: `start()` (Configures M-mode, switches to S-mode).
   3. `kernel/boot/main.c`: `main()` (Kernel initialization, starts scheduler).
+  4. **FS Init**: `fs_init()` is called in `kernel/proc/proc.c:fork_return()` (first process context) because it requires sleeping.
 - **File System Stack** (Bottom-Up):
-  1.  **Device Driver** (`kernel/dev/virtio.c`): VirtIO block device driver. Handles disk I/O via MMIO and interrupts.
-  2.  **Buffer Cache** (`kernel/fs/buf.c`): Caches disk blocks in memory. Uses `buf_t` with sleeplocks.
+  1.  **Device Driver** (`kernel/dev/virtio.c`): VirtIO block device driver.
+  2.  **Buffer Cache** (`kernel/fs/buf.c`): Caches disk blocks (`buf_t`).
   3.  **Bitmap** (`kernel/fs/bitmap.c`): Manages free/used disk blocks.
-  4.  **File System** (`kernel/fs/fs.c`): Inodes, directories, and file operations.
+  4.  **Inode Layer** (`kernel/fs/inode.c`): Manages file metadata (`inode_t`). Handles mapping file offsets to disk blocks.
+  5.  **Directory Layer** (`kernel/fs/dir.c`): Manages directory entries (`dirent_t`) and hierarchy.
+  6.  **Path Resolution** (`kernel/fs/dir.c`): Resolves paths to inodes (`path_to_inode`).
 - **Process Management** (`kernel/proc/`): `proc.c`, `swtch.S`, `cpu.c`.
-- **Memory Management** (`kernel/mem/`): `pmem.c`, `kvm.c` (maps VirtIO MMIO), `uvm.c`.
-- **Traps**: `trap_kernel.c` (handles disk interrupts), `trap_user.c`.
+- **Memory Management** (`kernel/mem/`): `pmem.c`, `kvm.c`, `uvm.c`.
 
 ## 🛠 Development Workflow
 
@@ -33,37 +35,43 @@ This repository contains a RISC-V Operating System kernel for the ECNU OS Lab.
 
 ## 📝 Coding Conventions
 
-- **Headers**: Use relative paths like `#include "fs/buf.h"`.
+- **Headers**: Use relative paths like `#include "fs/inode.h"`.
 - **Printing**: `printf()` from `lib/print.h`.
 - **Concurrency**:
-  - **Spinlocks**: `spinlock_t` (`lib/spinlock.c`) for short critical sections (e.g., `lk_buf_cache`).
-  - **Sleeplocks**: `sleeplock_t` (`lib/sleeplock.c`) for long operations (e.g., disk I/O). `buf_t` uses `slk`.
-  - **Locking Order**: Acquire `lk_buf_cache` to find a buffer, then acquire `b->slk` to use it. Release `lk_buf_cache` after getting `b->slk`.
-- **Buffer Cache**:
-  - `buf_read(block_num)`: Returns a locked buffer.
-  - `buf_write(b)`: Writes buffer to disk.
-  - `buf_release(b)`: Releases buffer lock and decrements ref count.
-- **VirtIO**:
-  - Uses MMIO registers defined in `virtio.h`.
-  - `virtio_disk_rw(b, write)`: Performs the actual I/O.
+  - **Spinlocks**: `spinlock_t` (`lib/spinlock.c`) for short critical sections (e.g., `lk_icache`).
+  - **Sleeplocks**: `sleeplock_t` (`lib/sleeplock.c`) for long operations (e.g., disk I/O). `inode_t` uses `slk`.
+- **Inodes**:
+  - **Disk vs Memory**: `inode_disk_t` (64 bytes on disk) vs `inode_t` (in-memory with lock & ref count).
+  - **Syncing**: `inode_rw(ip, write)` syncs between memory and disk.
+  - **Locking**: `inode_lock(ip)` / `inode_unlock(ip)` uses sleeplocks.
+  - **Ref Counting**: `ip->ref` tracks in-memory pointers. `ip->nlink` tracks directory entries on disk.
+- **Directories**:
+  - **Entry**: `dirent_t` (32 bytes: `uint16 inode_num`, `char name[30]`).
+  - **Operations**: `dir_search_entry`, `dir_add_entry`, `dir_delete_entry`.
+  - **Root**: `INODE_ROOT` is 0.
+- **Types**:
+  - `inode_num` is `uint16`.
+  - `INODE_NUM_UNUSED` is `0xFFFF`.
 
 ## ⚠️ Common Pitfalls & Patterns
 
-- **Buffer Locking**:
-  - A buffer returned by `buf_read` is **locked** (`sleeplock`). You must release it with `buf_release`.
-  - Do not hold `spinlock` while sleeping (waiting for disk I/O).
-- **Disk Interrupts**:
-  - Disk interrupts trigger `virtio_disk_intr()`, which wakes up processes waiting on buffers.
-- **Memory Mapping**:
-  - `kvm.c` maps the VirtIO MMIO region so the kernel can access device registers.
+- **Inode Locking**:
+  - Always hold `ip->slk` when reading/writing inode content or data.
+  - `inode_get` increments ref count but doesn't lock. `inode_lock` locks it.
+  - `inode_put` releases ref count (and sleeps if it needs to free the inode).
+- **Deadlocks**:
+  - Watch out for lock ordering when traversing directories (e.g., `..`).
+- **Buffer Cache Interaction**:
+  - Inode functions use `buf_read` to access disk blocks. Remember to `buf_release`.
 - **TODOs**:
-  - Implement `buf_read`, `buf_write`, `buf_release` in `kernel/fs/buf.c`.
-  - Implement file system logic in `kernel/fs/fs.c` and `kernel/fs/bitmap.c`.
+  - Implement directory operations in `kernel/fs/dir.c`: `dir_search_entry`, `dir_add_entry`, `dir_delete_entry`.
+  - Implement path resolution: `path_to_inode`, `path_to_pinode`.
+  - Implement `dir_get_entries` and `dir_change`.
 
 ## 📂 Key File Locations
 
+- **Inodes**: `kernel/fs/inode.c`, `include/fs/inode.h`
+- **Directories**: `kernel/fs/dir.c`, `include/fs/dir.h`
+- **File System Main**: `kernel/fs/fs.c`, `include/fs/fs.h`
 - **Buffer Cache**: `kernel/fs/buf.c`, `include/fs/buf.h`
-- **Disk Driver**: `kernel/dev/virtio.c`, `include/dev/virtio.h`
-- **File System**: `kernel/fs/fs.c`, `include/fs/fs.h`
-- **Bitmap**: `kernel/fs/bitmap.c`
-- **Make Tool**: `mkfs/mkfs.c`
+- **Disk Driver**: `kernel/dev/virtio.c`
