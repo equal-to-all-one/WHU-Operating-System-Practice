@@ -203,7 +203,7 @@ static uint32 locate_block(uint32* entry, uint32 bn, uint32 size)
     if(*entry == 0)
         *entry = bitmap_alloc_block();
 
-    if(size == 1)
+    if(size == 1) // 直接索引的更新留在write中进行
         return *entry;    
 
     uint32* next_entry;
@@ -318,8 +318,11 @@ uint32 inode_write_data(inode_t* ip, uint32 offset, uint32 len, void* src, bool 
 
     if(offset > ip->size) {
         ip->size = offset;
-        inode_rw(ip, true);
     }
+
+    // 不管如何都要更新，因为addr可能在locate中发生变化
+    inode_rw(ip, true);
+
     return tot;
 }
 
