@@ -57,16 +57,16 @@ void bitmap_free_block(uint32 block_num)
     bitmap_unset(sb.data_bitmap_start, offset);
 }
 
-// 注意编号从1开始而不是0
+// 编号从0开始
 uint16 bitmap_alloc_inode()
 {
     uint32 offset = bitmap_search_and_set(sb.inode_bitmap_start);
-    return (uint16)(offset + 1); // inode 0 is reserved
+    return (uint16)(offset); 
 }
 
 void bitmap_free_inode(uint16 inode_num)
 {
-    uint32 offset = inode_num - 1;
+    uint32 offset = inode_num;
     bitmap_unset(sb.inode_bitmap_start, offset);
 }
 
