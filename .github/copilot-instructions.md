@@ -1,77 +1,63 @@
-# GitHub Copilot Instructions for ECNU-OSLAB
+# Copilot Instructions (ECNU-OSLAB / Lab 9)
 
-This repository contains a RISC-V Operating System kernel for the ECNU OS Lab.
-**Current Focus: Lab 8 - File System High-Level Abstraction (Inodes, Directories, Path Resolution)**
+This repository contains a small RISC-V (rv64) teaching OS kernel with a userland and a simple file system.
 
-## 🧠 Project Architecture & Context
+## Architecture Overview
 
-- **Core Architecture**: RISC-V 64-bit (`riscv64`).
-- **Boot Flow**:
-  1. `kernel/boot/entry.S`: `_entry` (M-mode entry point).
-  2. `kernel/boot/start.c`: `start()` (Configures M-mode, switches to S-mode).
-  3. `kernel/boot/main.c`: `main()` (Kernel initialization, starts scheduler).
-  4. **FS Init**: `fs_init()` is called in `kernel/proc/proc.c:fork_return()` (first process context) because it requires sleeping.
-- **File System Stack** (Bottom-Up):
-  1.  **Device Driver** (`kernel/dev/virtio.c`): VirtIO block device driver.
-  2.  **Buffer Cache** (`kernel/fs/buf.c`): Caches disk blocks (`buf_t`).
-  3.  **Bitmap** (`kernel/fs/bitmap.c`): Manages free/used disk blocks.
-  4.  **Inode Layer** (`kernel/fs/inode.c`): Manages file metadata (`inode_t`). Handles mapping file offsets to disk blocks.
-  5.  **Directory Layer** (`kernel/fs/dir.c`): Manages directory entries (`dirent_t`) and hierarchy.
-  6.  **Path Resolution** (`kernel/fs/dir.c`): Resolves paths to inodes (`path_to_inode`).
-- **Process Management** (`kernel/proc/`): `proc.c`, `swtch.S`, `cpu.c`.
-- **Memory Management** (`kernel/mem/`): `pmem.c`, `kvm.c`, `uvm.c`.
+- **Kernel**: `kernel/`
+  - `boot/`: Entry point (`entry.S`), initialization (`main.c`).
+  - `proc/`: Process management (`proc.c`), context switching (`swtch.S`), execution (`exec.c`).
+  - `mem/`: Physical (`pmem.c`) and virtual (`uvm.c`, `kvm.c`) memory, mmap (`mmap.c`).
+  - `fs/`: File system implementation (inodes, buffers, directory, file).
+  - `syscall/`: System call dispatch (`syscall.c`) and implementation (`sysproc.c`, `sysfile.c`).
+  - `trap/`: Trap handling (`trap.S`, `trap_kernel.c`, `trap_user.c`).
+  - `dev/`: Device drivers (console, uart, virtio, plic, timer).
+- **Userland**: `user/` (programs and library).
+- **Headers**: `include/` (mirrors kernel structure).
+- **Tools**: `mkfs/` (file system image creator).
 
-## 🛠 Development Workflow
+## Build & Run
 
-### Build & Run
-- **Build All**: `make build` (Builds kernel, user programs, and `mkfs`).
-- **Run QEMU**: `make qemu` (Runs kernel with `fs.img` attached).
-- **Debug**: `make qemu-gdb` (Starts QEMU halted on port 26000).
-  - *VS Code Task*: `xv6build` runs `docker exec oslab make qemu-gdb`.
-- **File System Image**: `mkfs/mkfs.c` compiles to `mkfs/mkfs`, which generates `fs.img`.
+- **Build**: `make build` (builds kernel, user programs, and `fs.img`).
+- **Run QEMU**: `make qemu`.
+- **Debug**: `make qemu-gdb` (starts QEMU with GDB stub on port 26000).
+- **Clean**: `make clean`.
 
-### Key Commands
-- Clean: `make clean`
+## Key Workflows
 
-## 📝 Coding Conventions
+### Adding a User Program
+1.  Create `user/foo.c`.
+2.  Add `_foo` to `UPROGS` in `user/Makefile`.
+3.  Run `make build` to compile and pack it into `fs.img`.
 
-- **Headers**: Use relative paths like `#include "fs/inode.h"`.
-- **Printing**: `printf()` from `lib/print.h`.
-- **Concurrency**:
-  - **Spinlocks**: `spinlock_t` (`lib/spinlock.c`) for short critical sections (e.g., `lk_icache`).
-  - **Sleeplocks**: `sleeplock_t` (`lib/sleeplock.c`) for long operations (e.g., disk I/O). `inode_t` uses `slk`.
-- **Inodes**:
-  - **Disk vs Memory**: `inode_disk_t` (64 bytes on disk) vs `inode_t` (in-memory with lock & ref count).
-  - **Syncing**: `inode_rw(ip, write)` syncs between memory and disk.
-  - **Locking**: `inode_lock(ip)` / `inode_unlock(ip)` uses sleeplocks.
-  - **Ref Counting**: `ip->ref` tracks in-memory pointers. `ip->nlink` tracks directory entries on disk.
-- **Directories**:
-  - **Entry**: `dirent_t` (32 bytes: `uint16 inode_num`, `char name[30]`).
-  - **Operations**: `dir_search_entry`, `dir_add_entry`, `dir_delete_entry`.
-  - **Root**: `INODE_ROOT` is 0.
-- **Types**:
-  - `inode_num` is `uint16`.
-  - `INODE_NUM_UNUSED` is `0xFFFF`.
+### Adding a System Call
+1.  **Define Number**: Add `SYS_foo` to `user/syscall_num.h` and `include/syscall/sysnum.h`.
+2.  **User Stub**: Add function prototype to `user/userlib.h` and implementation to `user/user_syscall.c` (using `syscall(SYS_foo, ...)`).
+3.  **Kernel Handler**:
+    -   Implement `sys_foo()` in `kernel/syscall/sysproc.c` (process-related) or `kernel/syscall/sysfile.c` (file-related).
+    -   Add `[SYS_foo] sys_foo` to `syscalls[]` in `kernel/syscall/syscall.c`.
+    -   Add prototype to `include/syscall/sysfunc.h`.
+4.  **Argument Handling**: Use `arg_uint64`, `arg_int`, `arg_str` (wraps `uvm_copyin_str`) in `kernel/syscall/syscall.c` to retrieve arguments from trapframe.
 
-## ⚠️ Common Pitfalls & Patterns
+### Memory Management
+-   **Physical Memory**: `pmem_alloc(bool in_kernel)` and `pmem_free(void *pa, bool in_kernel)`.
+    -   `in_kernel = true`: Allocates/frees from kernel pool.
+    -   `in_kernel = false`: Allocates/frees from user pool.
+-   **Virtual Memory**:
+    -   `kvm_init()`: Sets up kernel page table.
+    -   `uvm_init()`: Sets up user page table.
+    -   `vm_mappages()`: Maps physical to virtual addresses.
 
-- **Inode Locking**:
-  - Always hold `ip->slk` when reading/writing inode content or data.
-  - `inode_get` increments ref count but doesn't lock. `inode_lock` locks it.
-  - `inode_put` releases ref count (and sleeps if it needs to free the inode).
-- **Deadlocks**:
-  - Watch out for lock ordering when traversing directories (e.g., `..`).
-- **Buffer Cache Interaction**:
-  - Inode functions use `buf_read` to access disk blocks. Remember to `buf_release`.
-- **TODOs**:
-  - Implement directory operations in `kernel/fs/dir.c`: `dir_search_entry`, `dir_add_entry`, `dir_delete_entry`.
-  - Implement path resolution: `path_to_inode`, `path_to_pinode`.
-  - Implement `dir_get_entries` and `dir_change`.
+### File System
+-   **Initialization**: `fs_init()` is called from `fork_return()` in `kernel/proc/proc.c` (context of the first process), *not* `main()`.
+-   **Locking**:
+    -   Use `inode_lock(ip)` (sleeplock) for inode operations.
+    -   Always release buffers with `buf_release(b)` after use.
+-   **Path**: `kernel/fs/` contains `inode.c`, `file.c`, `dir.c`, `fs.c` (superblock).
 
-## 📂 Key File Locations
+## Project Conventions
 
-- **Inodes**: `kernel/fs/inode.c`, `include/fs/inode.h`
-- **Directories**: `kernel/fs/dir.c`, `include/fs/dir.h`
-- **File System Main**: `kernel/fs/fs.c`, `include/fs/fs.h`
-- **Buffer Cache**: `kernel/fs/buf.c`, `include/fs/buf.h`
-- **Disk Driver**: `kernel/dev/virtio.c`
+-   **Process State**: `proc_t` in `include/proc/proc.h`.
+-   **First Process**: Created by `proc_make_first()` in `kernel/proc/proc.c`.
+-   **Trap Handling**: `trap_user` handles syscalls and exceptions from user mode; `trap_kernel` handles interrupts/exceptions in kernel mode.
+-   **Console**: `file_create_dev("/console", DEV_CONSOLE, 0)` sets up stdin/stdout/stderr for the first process.

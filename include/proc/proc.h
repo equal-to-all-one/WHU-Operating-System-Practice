@@ -5,6 +5,10 @@
 #include "mem/mmap.h"
 #include "lib/lock.h"
 
+// 文件系统相关类型定义
+typedef struct file file_t;
+typedef struct inode inode_t;
+
 // 页表类型定义
 typedef uint64* pgtbl_t;
 // mmap_region定义
@@ -92,6 +96,8 @@ enum proc_state {
     ZOMBIE,       // 濒临死亡
 };
 
+#define FILE_PER_PROC  10 // 每个进程最多打开的文件数
+
 // 进程定义
 typedef struct proc {
     
@@ -115,6 +121,9 @@ typedef struct proc {
 
     uint64 kstack;           // 内核栈的虚拟地址
     context_t ctx;           // 内核态进程上下文
+
+    inode_t* cwd;            // 当前目录
+    file_t* filelist[FILE_PER_PROC]; // 打开文件列表
 } proc_t;
 
 
@@ -131,5 +140,5 @@ void     proc_sleep(void* sleep_space, spinlock_t* lk);// 进程睡眠
 void     proc_wakeup(void* sleep_space);               // 进程唤醒
 void     proc_sched();                                 // 进程切换到调度器
 void     proc_scheduler();                             // 调度器
-
+int      proc_exec(char* path, char** argv);           // 使用ELF文件创建一个新的进程
 #endif

@@ -8,6 +8,7 @@
 #include "dev/uart.h"
 #include "proc/proc.h"
 #include "dev/vio.h"
+#include "fs/file.h"
 volatile static int started = 0;
 
 int main()
@@ -27,6 +28,7 @@ int main()
         mmap_init();
         virtio_disk_init();
         proc_init();
+        file_init();
         timer_create();
         intr_on();
         

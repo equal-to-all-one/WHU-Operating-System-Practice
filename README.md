@@ -1,4 +1,4 @@
-# LAB-8: 文件系统 之 上层抽象
+# LAB-9: 文件系统完善与系统整合
 
 ## 代码组织结构
 
@@ -9,581 +9,414 @@ ECNU-OSLAB
 │ │ ├── vio.h
 │ │ ├── timer.h
 │ │ ├── plic.h
+│ │ ├── console.h **(NEW)**
 │ │ └── uart.h
 │ ├── lib
 │ │ ├── print.h
 │ │ ├── lock.h
-│ │ └── str.h **(CHANGE)** 新增strlen
+│ │ └── str.h
 │ ├── proc
-│ │ ├── proc.h
+│ │ ├── proc.h **(CHANGE)** 增加文件系统支持
+│ │ ├── elf.h **(NEW)** 支持ELF文件的访问
 │ │ ├── initcode.h
 │ │ └── cpu.h
 │ ├── mem
-│ │ ├── mmap.h
+│ │ ├── mmap.h **(CHANGE)** mmap_region_alloc 增加初始化选项
 │ │ ├── pmem.h
-│ │ └── vmem.h
+│ │ └── vmem.h **(CHANGE)** uvm_heap_grow 增加页面权限选项
 │ ├── fs
 │ │ ├── buf.h
 │ │ ├── fs.h
-│ │ ├── dir.h **(NEW)**
-│ │ ├── inode.h **(NEW)**
-│ │ └── bitmap.h **(CHANGE)** 考虑到和目录的一致性, inode_num改为uint16
+│ │ ├── dir.h **(CHANGE)** 新增函数
+│ │ ├── inode.h
+│ │ ├── file.h **(NEW)**
+│ │ └── bitmap.h
 │ ├── trap
 │ │ └── trap.h
 │ ├── syscall
 │ │ ├── syscall.h
-│ │ ├── sysfunc.h
-│ │ └── sysnum.h
+│ │ ├── sysfunc.h **(CHANGE)**
+│ │ └── sysnum.h **(CHANGE)**
 │ ├── common.h
 │ ├── memlayout.h
 │ └── riscv.h
 ├── **kernel**
 │ ├── boot
-│ │ ├── main.c
+│ │ ├── main.c **(CHANGE)**
 │ │ ├── start.c
 │ │ ├── entry.S
 │ │ └── Makefile
 │ ├── dev
 │ │ ├── virtio.c
-│ │ ├── uart.c
+│ │ ├── uart.c **(CHANGE)** 修改uart_intr()
 │ │ ├── timer.c
 │ │ ├── plic.c
+│ │ ├── console.c **(NEW)** 控制台抽象
 │ │ └── Makefile
 │ ├── lib
 │ │ ├── print.c
 │ │ ├── spinlock.c
 │ │ ├── sleeplock.c
-│ │ ├── str.c **(CHANGE)** 新增strlen
+│ │ ├── str.c
 │ │ └── Makefile
 │ ├── proc
 │ │ ├── cpu.c
-│ │ ├── proc.c
+│ │ ├── proc.c **(CHANGE)** 需增加文件系统支持
+│ │ ├── exec.c **(NEW)**
 │ │ ├── swtch.S
 │ │ └── Makefile
 │ ├── mem
 │ │ ├── pmem.c
 │ │ ├── kvm.c
-│ │ ├── uvm.c
-│ │ ├── mmap.c
+│ │ ├── uvm.c **(CHANGE)** uvm_heap_grow 增加页面权限选项
+│ │ ├── mmap.c **(CHANGE)** mmap_region_alloc 增加初始化选项
 │ │ └── Makefile
 │ ├── fs
 │ │ ├── buf.c
-│ │ ├── fs.c **(CHANGE)** 日常更新
-│ │ ├── bitmap.c **(CHANGE)** 考虑到和目录的一致性, inode_num改为uint16
-│ │ ├── inode.c **(TODO)**
-│ │ ├── dir.c **(TODO)**
+│ │ ├── fs.c
+│ │ ├── bitmap.c
+│ │ ├── inode.c
+│ │ ├── dir.c **(TODO)** 添加新的函数
+│ │ ├── file.c **(TODO)**
 │ │ └── Makefile
-│ ├── syscall
-│ │ ├── syscall.c
-│ │ ├── sysfunc.c
+│ ├── syscall (sysfunc.c改为sysproc.c)
+│ │ ├── syscall.c **(CHANGE)** 支持更多系统调用
+│ │ ├── sysproc.c **(NEW)**
+│ │ ├── sysfile.c **(NEW)**
 │ │ └── Makefile
 │ ├── trap
 │ │ ├── trap_kernel.c
-│ │ ├── trap_user.c
+│ │ ├── trap_user.c **(TODO)** 处理用户栈溢出带来的缺页异常
 │ │ ├── trap.S
 │ │ ├── trampoline.S
 │ │ └── Makefile
 │ ├── Makefile
 │ └── kernel.ld
 ├── **mkfs**
-│ ├── mkfs.c **(CHANGE)** 日常更新
+│ ├── mkfs.c
 │ └── Makefile
 ├── **user**
 │ ├── syscall_arch.h
-│ ├── syscall_num.h
+│ ├── syscall_num.h **(CHANGE)**
 │ ├── sys.h
-│ ├── type.h
-│ ├── initcode.c
-│ └── Makefile
-├── Makefile
+│ ├── type.h **(CHANGE)**
+│ ├── userlib.h **(NEW)**
+│ ├── initcode.c **(CHANGE)**
+│ ├── test.c **(NEW)**
+│ ├── user_lib.c **(NEW)**
+│ ├── user_syscall.c **(NEW)**
+│ ├── user.ld **(NEW)**
+│ └── Makefile **(CHANGE)**
+├── Makefile **(CHANGE)**
 └── common.mk
 
-## 实验概况
+## 任务概览
 
-在上一次实验中, 我们做了三件事:
+本次实验是最后一次实验, 任务可以分为以下几个方面:
 
-- 磁盘创建 (mkfs.c)
-- 磁盘驱动 (virtio.c)
-- 磁盘的底层管理 (buf.c fs.c bitmap.c)
+1. 前期准备: 修改 `mmap_region_alloc()` 和 `uvm_heap_grow()` 两个函数, 并同步修改调用它们的地方
 
-对于上层来说, 本质是在内存中提供了一个虚拟磁盘, 使得上层不用关心磁盘驱动和磁盘硬件
+   对于mmap_region_alloc(), 增加一个 bool init 字段, 标记是否需要初始化
 
-只需通过buf.c和bitmap.c提供的接口即可管理磁盘, 很明显, 这部分和文件系统没有太大联系
+   初始化指的是: 对申请到的mmap_region做初始赋值, 使得它标记整个mmap_region区域为空闲
 
-这一次我们将在上一次实验的基础上, 完成文件系统里最重要的元数据管理: inode 和 dirent
+   对于uvm_heap_grow(), 增加一个int flags字段, 标记新增内存空间的权限
 
-首先做一些小的修补: 增加strlen函数获取字符串长度; 修改bitmap里inode的部分, 使得返回值变成uint16
+   之前默认是 PTE_R | PTE_W | PTE_U, 现在需要考虑这个区域可能存放代码 (PTE_X)
 
-这次实验可以分为四个步骤:
+2. 完成 dir.c 中新增的函数和 file.c 中的函数, 它们构成了文件系统剩余的部分
 
-1. 理解 mkfs.c 做了哪些事情, 和上次相比, 磁盘发生了什么变化
-2. 完成 inode.c 里面的函数, 理解 "磁盘里的inode与内存里的inode" "inode元数据与数据"
-3. 完成 dir.c 里的第一部分, 理解 "目录" 这种结构化文件的构成和管理
-4. 完成 dir.c 里的第二部分, 理解文件路径是如何确定 inode 的
+   在这个过程中, 你可能需要结合 sysfile.c, 这是文件系统的系统调用接口
 
-## step-1: 磁盘中根目录的建立
+   在sysfile.c中, 你会发现它还与进程模块相关, 包括进程的打开文件表和当前目录inode
 
-上一次实验中, 磁盘只有 superblock 区域做了设置, 其他区域全部都是0
+3. 我们在uart的基础上包装了一层console, 这部分已经实现, 你需要考虑在文件系统何处调用它的接口
 
-这一次, 我们添加了根目录 (根目录没有名字, inode_num也是确定的, 这里设为0)
+   使得我们可以通过访问设备文件的方式进行标准输入和标准输出
 
-这意味着会申请一个inode管理这个目录 (修改inode bitmap)
+4. 最后需要实现一个proc_exec函数, 这个函数可以用于执行一个ELF文件, 它涉及进程、内存、文件系统等多个模块
 
-inode region 区域有一个inode会被赋值 (元数据区域)
+5. 阅读和理解user目录下的源文件并进行测试, 源文件分为 initcode + 函数库 + 磁盘里可见的文件
 
-还会申请一个block用于存放更目录的数据： "." 和 ".." 这两个目录项 (修改block bitmap)
+6. 有时间的话, 你可以独立完成的任务: 支持管道文件(主要在xv6的pipe.c中实现)
 
-## step-2: inode的管理
+   用户栈溢出产生的缺页异常处理(利用proc->ustack_pages)
 
-inode的管理模式和之前大家见过的 mmap_region, proc, buf 都是类似的
+## 测试一
 
 ```
-// 内存中的inode资源 + 保护它的锁
-#define N_INODE 32
-static inode_t icache[N_INODE];
-static spinlock_t lk_icache;
-```
+// 来自 initcode.c
+// 后面几个测试也保持这样, 它会调用 test.c 里的测试函数
+// 这里传入的参数没有实际意义, 只是检查传参是否成功
 
-声明一个全局的资源仓库, 并向外部提供申请和释放资源的接口
+#include "sys.h"
 
-出于简化考虑, 仓库的组织形式和procs仓库一致, 采用数组的形式组织
-
-inode_init()函数负责仓库的初始化
-
-```
-typedef struct inode {
-    // 磁盘里的inode信息 (由slk保护)
-    uint16 type;                // inode 管理的文件类型
-    uint16 major;               // 设备文件使用: 主设备号
-    uint16 minor;               // 设备文件使用: 次设备号
-    uint16 nlink;               // 链接数量 (nlink个文件名链接到这个inode)
-    uint32 size;                // 文件大小 (字节)
-    uint32 addrs[N_ADDRS];      // 文件存储在哪些block里 (分为一级 二级 三级)
-
-    // 内存里的inode信息
-    uint16 inode_num;           // inode序号
-    uint32 ref;                 // 引用数 (由lk_icache保护)
-    bool valid;                 // 上述磁盘里inode字段的有效性 (由slk保护)
-    sleeplock_t slk;            // 睡眠锁
-} inode_t;
-```
-
-这里给出了inode的结构体定义, 基本和xv6保持一致, 去除了我们暂时用不到的 dev 字段
-
-在本次实验中 major + minor + nlink 字段也几乎不会使用
-
-字段的具体含义和用法建议阅读xv6的注释和说明书, 尤其需要关注slk和lk_icache的使用, 这里不做详细介绍
-
-可以看到, inode的定义分为了两部分: 磁盘里的字段(inode_disk_t in mkfs.c) + 内存里新加的字段
-
-首先关注磁盘里的字段, 当这些字段被修改后, 需要在特定时机写回磁盘, 以保证磁盘和内存的一致性
-
-在申请一个空闲的inode时, 也需要把磁盘里的inode读入以初始化这些磁盘里的字段
-
-所以需要完成 inode_rw() 函数来做让磁盘和内存同步的工作 (使用buf.c提供的接口)
-
-inode_alloc() inode_create() inode_free() 这组函数是申请和释放inode资源使用的
-
-申请资源分为两种情况:
-
-1. 确定磁盘里有inode-x: 那么直接申请一个空闲inode并把它的inode_num设为x即可 (先不从磁盘读出)
-
-   或者在查询过程中发现icache命中了这个inode, 那么直接返回这个inode即可
-
-2. 创建一个磁盘里没有的inode-x: 那么icache不可能命中, 首先申请一个空闲inode (磁盘和内存都要申请),
-
-   赋值成你想要的样子, 随后写入磁盘, 最后返回这个inode即可
-
-第一种情况应该调用 inode_alloc(inode_num) 第二种情况应该调用inode_create(type, major, minor)
-
-释放资源也分为两种情况:
-
-1. 只是在内存里释放这个inode: inode->ref 减到 0, 代表这个 inode 进入可分配状态
-2. 在磁盘里也要删除这个inode: 需要调用 inode_destroy() 释放这个 inode 在磁盘占用的空间
-
-这两种情况都是调用 inode_free() 完成, 只需要在内部做一个判断即可
-
-你应该注意到一件事: 和buf不用, 申请得到的inode资源是不上锁的, 释放inode资源时也不必持有锁
-
-所以还需要一组 inode_lock() 和 inode_unlock() 函数负责上锁和解锁
-
-其中 inode_lock() 还需要检查 valid 字段, 判断是否需要从磁盘读入inode来更新内存里的inode
-
-最后, 为了使用方便, 还提供了一个 inode_unlock_free() 函数一口气解锁和释放inode
-
-完成这些函数后, inode元数据的管理基本成型, 下面关心inode的数据管理
-
-inode 里的 size 和 addrs 字段服务于数据管理
-
-首先解释addrs数组的结构:
-
-- 最前面的 N_ADDRS_1 个元素直接存放 block_num (一级映射)
-
-- 中间的 N_ADDRS_2 个元素存放的 block_num 不是数据block, 而是索引block
-
-  索引block由连续的entry构成, 每个entry存放一个block_num (二级映射)
-
-- 最后的 N_ADDRS_3 个元素存放的是索引block的索引block (三级映射)
-
-逻辑上接近之前用过的页表
-
-出于简化考虑, 这个 “页表” 只会顺序增大, 不会出现删除和不连续的情况
-
-从文件角度理解: 只有read和write操作, 没有delete操作
-
-首先你需要完成 inode_locate_block() 函数, 它负责把逻辑上的inode第bn块block转换成
-
-物理上的磁盘第bx个block, 如果bn不存在(比现有的最大bn大1), 则申请新的block并返回block_num
-
-你可以使用助教提供的locate_block()函数帮助完成这个函数, 理解它的逻辑并考虑传入什么参数
-
-完成 inode_locate_block() 后, 可以动手实现 inode_read_data() 和 inode_write_data()
-
-他们会用到 inode_locate_block() 和 buf.c 提供的接口
-
-最后需要完成 inode_data_free(), 负责释放所有inode管理的数据区域, data_free()会提供帮助
-
-完成这部分后, inode的数据管理也成型了, 让我们做一些测试
-
-## test-1: inode的创建与删除
-
-```
-    // in fs_init()
-
-    // inode初始化
-    inode_init();
-
-    // 原本就存在的inode
-    inode_t* ip = inode_alloc(INODE_ROOT);
-    inode_lock(ip);
-    inode_print(ip);
-    inode_unlock(ip);
-    bitmap_print(sb.inode_bitmap_start);
-
-    // 创建新的inode
-    inode_t* nip = inode_create(FT_FILE, 0, 0);
-    inode_lock(nip);
-    inode_print(nip);
-    inode_unlock(nip);
-    bitmap_print(sb.inode_bitmap_start);
-
-    // 尝试删除inode
-    inode_lock(nip);
-    nip->nlink = 0;
-    inode_unlock_free(nip);
-    bitmap_print(sb.inode_bitmap_start);
-```
-
-理想的测试结果如图:
-
-![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/01.png)
-
-## test-2: inode简单读写
-
-```
-    // in fs.c fs_init()
-    // 在函数外声明两个个大小为 2*BLOCK_SIZE 的数组 str 和 tmp
-    // blockcmp 函数负责比较两个大小为 2*BLOCK_SIZE 的空间是否完全一样
-
-    // inode初始化
-    inode_init();
-    uint32 ret = 0;
-
-    for(int i = 0; i < BLOCK_SIZE * 2; i++)
-        str[i] = i;
-
-    // 创建新的inode
-    inode_t* nip = inode_create(FT_FILE, 0, 0);
-    inode_lock(nip);
-    
-    // 第一次查看
-    inode_print(nip);
-
-    // 第一次写入
-    ret = inode_write_data(nip, 0, BLOCK_SIZE / 2, str, false);
-    assert(ret == BLOCK_SIZE / 2, "inode_write_data: fail");
-
-    // 第二次写入
-    ret = inode_write_data(nip, BLOCK_SIZE / 2, BLOCK_SIZE + BLOCK_SIZE / 2, str + BLOCK_SIZE / 2, false);
-    assert(ret == BLOCK_SIZE +  BLOCK_SIZE / 2, "inode_write_data: fail");
-
-    // 一次读取
-    ret = inode_read_data(nip, 0, BLOCK_SIZE * 2, tmp, false);
-    assert(ret == BLOCK_SIZE * 2, "inode_read_data: fail");
-
-    // 第二次查看
-    inode_print(nip);
-    
-    inode_unlock_free(nip);
-
-    // 测试
-    if(blockcmp(tmp, str) == true)
-        printf("success");
-    else
-        printf("fail");
-
-    while (1); 
-```
-
-理想的测试结果如下:
-
-![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/02.png)
-
-## test-3: inode大量读写
-
-```
-    // in fs_init()
-    // 在函数外声明三个大小为BLOCK_SIZE的数组 str, tmp, empty
-    // blockcmp 函数负责比较两个大小为BLOCK_SIZE的空间是否完全一样
-
-    // inode初始化
-    inode_init();
-    uint32 ret = 0;
-
-    for(int i = 0; i < BLOCK_SIZE; i++) {
-        str[i] = i;
-        empty[i] = 0;
-    }
-
-    // 创建新的inode
-    inode_t* nip = inode_create(FT_FILE, 0, 0);
-    inode_lock(nip);
-    
-    // 第一次查看
-    inode_print(nip);
-    bitmap_print(sb.data_bitmap_start);
-
-    uint32 max_blocks =  N_ADDRS_1 + N_ADDRS_2 * ENTRY_PER_BLOCK + 2 * ENTRY_PER_BLOCK;
-
-    for(uint32 i = 0; i < max_blocks; i++)
-    {
-        ret = inode_write_data(nip, i * BLOCK_SIZE, BLOCK_SIZE, str, false);
-        assert(ret == BLOCK_SIZE, "inode_write_data fail");
-    }
-    ret = inode_write_data(nip, (max_blocks - 2) * BLOCK_SIZE, BLOCK_SIZE, empty, false);
-    assert(ret == BLOCK_SIZE, "inode_write_data fail");
-    
-    // 第二次查看
-    inode_print(nip);
-
-    // 区域-1
-    ret = inode_read_data(nip, BLOCK_SIZE, BLOCK_SIZE, tmp, false);
-    assert(ret == BLOCK_SIZE, "inode_read_data fail");
-    assert(blockcmp(tmp, str), "check-1 fail");
-    printf("check-1 success\n");
-
-    // 区域-2
-    ret = inode_read_data(nip, N_ADDRS_1 * BLOCK_SIZE, BLOCK_SIZE, tmp, false);
-    assert(ret == BLOCK_SIZE, "inode_read_data fail");
-    assert(blockcmp(tmp, str), "check-2 fail");
-    printf("check-2 success\n");
-
-    // 区域-3
-    ret = inode_read_data(nip, (max_blocks - 2) * BLOCK_SIZE, BLOCK_SIZE, tmp, false);
-    assert(ret == BLOCK_SIZE, "inode_read_data fail");
-    assert(blockcmp(tmp, empty), "check-2 fail");
-    printf("check-3 success\n");
-
-    // 释放inode管理的所有data block
-    inode_free_data(nip);
-    printf("free success\n");
-
-    // 第三次观察
-    inode_print(nip);
-    bitmap_print(sb.data_bitmap_start);
-
-    inode_unlock_free(nip);
-    
-    while (1);
-```
-
-理想的测试结果如下:
-
-![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/03.png)
-
-## step-3: 目录项管理
-
-inode管理的实现想必并不轻松, 因为它结构复杂, 功能强大, 是核心的元数据结构
-
-而目录项管理这部分更接近 bitmap 的管理, 难度并不大
-
-目录是一种特殊的结构化文件, 它由若干目录项 (directroy entry 简称 dirent) 组成
-
-```
-typedef struct dirent {
-    uint16 inode_num;
-    char name[DIR_NAME_LEN];
-} dirent_t;
-```
-
-目录在磁盘和内存的定义是一样的, 由 inode_num 和 目录名 两部分组成
-
-本质是表征从目录名到inode_num的单向映射关系(一个目录名对应一个inode, 一个inode可以有多个目录名)
-
-一个inode可以有多个目录名涉及链接的问题(nlink), 在下一次实验中详细展开
-
-这里我们还做了一个简化假设: 目录文件只能管理一个block(32个entry), 只有addrs[0]是有效的
-
-目录项管理包括三个函数: dir_search_entry() dir_add_entry() dir_delete_entry()
-
-他们的含义可以参考注释, 实现后需要做一个测试
-
-## test-4: 目录项操作
-
-```
-    // in fs_init()
-
-    // inode初始化
-    inode_init();
-
-    // 获取根目录
-    inode_t* ip = inode_alloc(INODE_ROOT);    
-    inode_lock(ip);
-
-    // 第一次查看
-    dir_print(ip);
-    
-    // add entry
-    dir_add_entry(ip, 1, "a.txt");
-    dir_add_entry(ip, 2, "b.txt");
-    dir_add_entry(ip, 3, "c.txt");
-    
-    // 第二次查看
-    dir_print(ip);
-
-    // 第一次检查
-    assert(dir_search_entry(ip, "b.txt") == 2, "error-1");
-
-    // delete entry
-    dir_delete_entry(ip, "a.txt");
-   
-    // 第三次查看
-    dir_print(ip);
-    
-    // add entry
-    dir_add_entry(ip, 1, "d.txt");    
-    
-    // 第四次查看
-    dir_print(ip);
-    
-    // 第二次检查
-    assert(dir_add_entry(ip, 4, "d.txt") == BLOCK_SIZE, "error-2");
-    
-    inode_unlock(ip);
-
-    printf("over");
-
-    while (1); 
-```
-
-理想的测试结果:
-
-![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/04.png)
-
-## step-4: 文件路径处理
-
-所谓文件路径, 指的是由一串文件和目录构成的结构化信息, 如"/user/work/hello.txt"
-
-这里面包含了 根目录 user目录 work目录 和 hello.txt文件
-
-在本次实验中, 所有路径都是绝对路径, 也就是从根目录出发的路径
-
-我们需要提供两个接口函数: path_to_inode() 和 path_to_pinode()
-
-```
-// 找到path对应的inode
-inode_t* path_to_inode(char* path)
+int main()
 {
-    char name[DIR_NAME_LEN];
-    return search_inode(path, name, false);
+    char path[] = "./test";
+    char* argv[] = {"hello", "world", 0};
+
+    int pid = syscall(SYS_fork);
+    if(pid < 0) { // 失败
+        syscall(SYS_write, 0, 20, "initcode: fork fail\n");
+    } else if(pid == 0) { // 子进程
+        syscall(SYS_write, 0, 22, "\n-----test start-----\n");
+        syscall(SYS_exec, path, argv);
+    } else { // 父进程
+        syscall(SYS_wait, 0);
+        syscall(SYS_write, 0, 21, "\n-----test over-----\n");
+        while(1);
+    }
+    return 0;
 }
+// 来自test.c
+// 测试目的: 测试 stdin 和 stdout 输入一行然后回车换行
+#include "userlib.h"
 
-// 找到path对应的inode的父节点
-// path最后的目录名放入name指向的空间
-inode_t* path_to_pinode(char* path, char* name)
+int main(int argc, char* argv[])
 {
-    return search_inode(path, name, true);
+    char tmp[128];
+    while(1) {
+        memset(tmp, 0, 128);
+        stdin(tmp, 128);
+        stdout(tmp, strlen(tmp));
+    }
 }
 ```
 
-它们都依赖 `search_inode()` 提供路径到inode的解析能力
+理想结果:
 
-可以预测到, `search_inode()` 的核心操作是 循环或递归 + 路径字符串剥离 + dir_search_entry()
+![测试](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-9/picture/00.png)
 
-其中字符串剥离函数已经给出 `skip_elements()`, 理解它的用法, 不必深究它的实现细节
-
-实现 `search_inode()` 后, 我们进行最后一个测试
-
-## test-5: 路径解析
+## 测试二
 
 ```
-    // in fs_init()
+// 来自 test.c
+// 测试目的: 检测printf的正确性 + exec的传参能力
+#include "userlib.h"
 
-    // inode初始化
-    inode_init();
+int main(int argc, char* argv[])
+{
+    printf("\nchild arguments: ");
+    for(int i = 0; i < argc; i++)
+        printf("%s ", argv[i]);
+    printf("\n");
+    return 0;
+}
+```
 
-    // 创建inode
-    inode_t* ip = inode_alloc(INODE_ROOT);
-    inode_t* ip_1 = inode_create(FT_DIR, 0, 0);
-    inode_t* ip_2 = inode_create(FT_DIR, 0, 0);
-    inode_t* ip_3 = inode_create(FT_FILE, 0, 0);
+理想输出:
 
-    // 上锁
-    inode_lock(ip);
-    inode_lock(ip_1);
-    inode_lock(ip_2);
-    inode_lock(ip_3);
+![测试](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-9/picture/01.png)
 
-    // 创建目录
-    dir_add_entry(ip, ip_1->inode_num, "user");
-    dir_add_entry(ip_1, ip_2->inode_num, "work");
-    dir_add_entry(ip_2, ip_3->inode_num, "hello.txt");
+## 测试三
+
+```
+// 来自test.c
+// 测试目的: 目录相关的三组操作 + 绝对路径与相对路径
+#include "userlib.h"
+
+static int try_to_open(char* path, uint32 mode)
+{
+    int fd = sys_open(path, mode);
+    if(fd < 0) {
+        printf("open %s fail\n", path);
+        while(1);
+    }
+    return fd;
+}
+
+static void try_to_mkdir(char* path)
+{
+    int ret = sys_mkdir(path);
+    if(ret < 0) {
+        printf("mkdir %s fail\n", path);
+        while(1);
+    }
+}
+
+static dirent_t dirents[10];
+static uint32 dirlen;
+
+static void try_to_print_dir(char* path, char* dirname)
+{
+    printf("%s ",dirname);
+    int fd = try_to_open(path, MODE_READ);
+    dirlen = sys_getdir(fd, dirents, sizeof(dirents));
+    print_dirents(dirents, dirlen / sizeof(dirent_t));
+    sys_close(fd);
+}
+
+int main(int argc, char* argv[])
+{
+    int ret = 0, fd = 0;
+
+    // 输出根目录内容
+    try_to_print_dir(".", "root");
+
+    // 在根目录下创建workdir
+    // 在workdir下创建student和teacher目录和hello.txt文件
+    // 输出workdir的目录项
+    try_to_mkdir("/workdir");
+    try_to_mkdir("/workdir/student");
+    try_to_mkdir("/workdir/teacher");
+    fd = try_to_open("./workdir/hello.txt", MODE_CREATE | MODE_READ | MODE_WRITE);
+    sys_close(fd);
+    try_to_print_dir(".", "root");
+    try_to_print_dir("/workdir", "workdir");
+
+    // 修改当前目录项并测试修改是否生效
+    ret = sys_chdir("./workdir/student");
+    if(ret < 0) {
+        printf("chdir fail\n");
+        while(1);
+    }
+    try_to_print_dir("..", "workdir");
+    try_to_print_dir("././../..","root");
+
+    return 0;
+}
+```
+
+理想输出:
+
+![测试](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-9/picture/02.png)
+
+## 测试四
+
+```
+// 来自 test.c
+// 测试目的: open read write lseek fstat
+
+#include "userlib.h"
+
+static int try_to_open(char* path, uint32 mode)
+{
+    int fd = sys_open(path, mode);
+    if(fd < 0) {
+        printf("open %s fail\n", path);
+        while(1);
+    }
+    return fd;
+}
+
+int main(int argc, char* argv[])
+{
+    int ret = 0, fd = 0;
+
+    char str[] = "hello wrold";
+    char tmp[15];
+
+    // 创建文件 + 简单读写 + 指针移动 + 文件状态检查
+
+    fd = try_to_open("./hello.txt", MODE_WRITE | MODE_READ | MODE_CREATE);
+    ret = sys_write(fd, strlen(str), str);
+    printf("write_len = %d\n", ret);
     
-    // 填写文件
-    inode_write_data(ip_3, 0, 11, "hello world", false);
+    sys_lseek(fd, 11, LSEEK_SUB);
+    ret = sys_read(fd, 10, tmp);
+    tmp[ret] = 0;
+    printf("read_len = %d read = %s\n", ret, tmp);
 
-    // 解锁
-    inode_unlock(ip_3);
-    inode_unlock(ip_2);
-    inode_unlock(ip_1);
-    inode_unlock(ip);
+    sys_lseek(fd, 6, LSEEK_SET);
+    ret = sys_read(fd, 10, tmp);
+    tmp[ret] = 0;
+    printf("read_len = %d read = %s\n", ret, tmp);
 
-    // 路径查找
-    char* path = "/user/work/hello.txt";
-    char name[DIR_NAME_LEN];
-    inode_t* tmp_1 = path_to_pinode(path, name);
-    inode_t* tmp_2 = path_to_inode(path);
+    fstat_t fstate;
+    sys_fstat(fd, &fstate);
+    print_filestate(&fstate);
 
-    assert(tmp_1 != NULL, "tmp1 = NULL");
-    assert(tmp_2 != NULL, "tmp2 = NULL");
-    printf("\nname = %s\n", name);
+    sys_close(fd);
 
-    // 输出 tmp_1 的信息
-    inode_lock(tmp_1);
-    inode_print(tmp_1);
-    inode_unlock_free(tmp_1);
-
-    // 输出 tmp_2 的信息
-    inode_lock(tmp_2);
-    inode_print(tmp_2);
-    char str[12];
-    str[11] = 0;
-    inode_read_data(tmp_2, 0, tmp_2->size, str, false);
-    printf("read: %s\n", str);
-    inode_unlock_free(tmp_2);
-
-    printf("over");
-    while (1); 
+    return 0;
+}
 ```
 
-理想的测试结果如图:
+理想结果:
 
-![测试结果](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-8/picture/05.png)
+![测试](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-9/picture/03.png)
 
-## 总结
+## 测试五
 
-本次实验我们完成了 inode 和 dirent 的管理, 已经具备了提出文件 (file) 这一概念的基本条件
+```
+// 来自test.c
+// 测试目的: link unlink dup
+#include "userlib.h"
 
-在下一次实验(最后一次), 我们将完成 file 相关的抽象, 完成完整的文件系统并提供相关系统调用
+static int try_to_open(char* path, uint32 mode)
+{
+    int fd = sys_open(path, mode);
+    if(fd < 0) {
+        printf("open %s fail\n", path);
+        while(1);
+    }
+    return fd;
+}
 
-还需整合各个模块, 实现最终的内核
+static dirent_t dirents[10];
+static uint32 dirlen;
+
+static void try_to_print_dir(char* path, char* dirname)
+{
+    printf("%s ",dirname);
+    int fd = try_to_open(path, MODE_READ);
+    dirlen = sys_getdir(fd, dirents, sizeof(dirents));
+    print_dirents(dirents, dirlen / sizeof(dirent_t));
+    sys_close(fd);
+}
+
+int main(int argc, char* argv[])
+{
+    int ret = 0, fd = 0, new_fd = 0;
+    char tmp1[10], tmp2[10];
+
+    // 测试 sys_dup
+    
+    fd = sys_dup(STD_OUT);
+    sys_write(fd, 16, "sys_dup success\n");
+    sys_close(fd);
+
+    // 测试 sys_link
+    
+    fd = try_to_open("hello.txt", MODE_READ | MODE_WRITE | MODE_CREATE);
+    sys_write(fd, 12, "hello world\n");
+    sys_lseek(fd, 6, LSEEK_SET);
+
+    ret = sys_link("hello.txt", "world.txt");
+    if(ret < 0) {
+        printf("link fail\n");
+        while(1);
+    }
+
+    new_fd = try_to_open("world.txt", MODE_READ);
+    
+    sys_read(fd, 5, tmp1);
+    sys_read(new_fd, 5, tmp2);
+    printf("%s %s\n", tmp1, tmp2);
+
+    // 测试 sys_unlink
+    
+    try_to_print_dir(".", "root");
+
+    fstat_t fstate;
+    sys_fstat(fd, &fstate);
+    print_filestate(&fstate);
+    sys_unlink("world.txt");
+
+    sys_fstat(fd, &fstate);
+    print_filestate(&fstate);
+    sys_unlink("hello.txt");
+
+    sys_close(fd);
+    sys_close(new_fd);
+
+    try_to_print_dir(".", "root");
+
+    return 0;
+}
+```
+
+理想结果:
+
+![测试](https://gitee.com/wuzhaoqi/ecnu-oslab-2024-task/raw/lab-9/picture/04.png)

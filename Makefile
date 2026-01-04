@@ -4,8 +4,11 @@ KERN = kernel
 USER = user
 MKFS = mkfs
 KERNEL_ELF = kernel-qemu
-CPUNUM = 2
+CPUNUM = 1
 FS_IMG = fs.img
+
+UPROGS=\
+	./user/_test\
 
 .PHONY: clean $(KERN) $(USER) $(MKFS)
 
@@ -17,10 +20,10 @@ $(KERN):
 
 $(USER):
 	$(MAKE) init --directory=$@
-
+	$(MAKE) build --directory=$@
 $(MKFS):
 	$(MAKE) build --directory=$@
-	$(MKFS)/mkfs $(FS_IMG)
+	$(MKFS)/mkfs $(FS_IMG) $(UPROGS)
 
 # QEMU相关配置
 QEMU     =  qemu-system-riscv64
@@ -49,6 +52,7 @@ qemu-gdb: $(USER) $(KERN) $(MKFS) .gdbinit
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
 clean:
+	$(MAKE) --directory=$(USER) clean
 	$(MAKE) --directory=$(KERN) clean
 	$(MAKE) --directory=$(MKFS) clean
 	rm -f $(KERNEL_ELF) $(FS_IMG) .gdbinit

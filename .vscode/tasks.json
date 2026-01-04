@@ -5,7 +5,7 @@
             "label": "xv6build",
             "type": "shell",
             "isBackground": true,
-            "command": "docker exec oslab make qemu-gdb",
+            "command": "docker exec -it oslab make qemu-gdb",
             "problemMatcher": [
                 {
                     "owner": "xv6",

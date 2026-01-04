@@ -4,12 +4,14 @@
 #include "mem/mmap.h"
 #include "lib/str.h"
 #include "lib/print.h"
-#include "syscall/sysfunc.h"
 #include "syscall/syscall.h"
+#include "syscall/sysfunc.h"
 #include "dev/timer.h"
 #include "fs/buf.h"
 #include "fs/fs.h"
 #include "fs/bitmap.h"
+#include "fs/dir.h"
+#include "proc/elf.h"
 // 堆伸缩
 // uint64 new_heap_top 新的堆顶 (如果是0代表查询, 返回旧的堆顶)
 // 成功返回新的堆顶 失败返回-1
@@ -28,7 +30,7 @@ uint64 sys_brk()
     }
 
     if(new_heap_top > old_heap_top) {
-        if(uvm_heap_grow(p->pgtbl, old_heap_top, new_heap_top - old_heap_top) == 0) {
+        if(uvm_heap_grow(p->pgtbl, old_heap_top, new_heap_top - old_heap_top, PTE_R | PTE_W | PTE_U) == 0) {
             return -1;
         }
         p->heap_top = new_heap_top;
@@ -181,4 +183,51 @@ uint64 sys_sleep()
     }
     spinlock_release(&sys_timer.lk);
     return 0;
+}
+
+// 执行一个ELF文件
+// char* path
+// char** argv 注意传入的最后一个参数必须是NULL
+// 成功返回argc 失败返回-1
+uint64 sys_exec()
+{
+    char path[DIR_PATH_LEN];    // 文件路径
+    char* argv[ELF_MAXARGS];    // 参数指针数组
+    uint64 uargv, uarg;
+    int i;
+
+    arg_str(0, path, DIR_PATH_LEN);
+    arg_uint64(1, &uargv);
+
+    memset(argv, 0, sizeof(argv));
+
+    for(i = 0; i < ELF_MAXARGS; i++){
+        // fetch the pointer to the i-th argument string
+        uvm_copyin(myproc()->pgtbl, (uint64)&uarg, uargv + sizeof(uint64) * i, sizeof(uint64));
+        
+        if(uarg == 0){
+            argv[i] = 0;
+            break;
+        }
+
+        // allocate kernel buffer for the argument string
+        argv[i] = (char*)pmem_alloc(false); 
+        if(argv[i] == 0)
+            goto bad;
+        
+        // fetch the argument string
+        uvm_copyin_str(myproc()->pgtbl, (uint64)argv[i], uarg, PGSIZE); 
+    }
+
+    int ret = proc_exec(path, argv);
+
+    for(i = 0; i < ELF_MAXARGS && argv[i] != 0; i++)
+        pmem_free((uint64)argv[i], false);
+
+    return ret;
+
+bad:
+    for(i = 0; i < ELF_MAXARGS && argv[i] != 0; i++)
+        pmem_free((uint64)argv[i], false);
+    return -1;
 }

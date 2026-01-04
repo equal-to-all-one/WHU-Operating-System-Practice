@@ -4,3 +4,5 @@ kernel-qemu
 
 fs.img
 mkfs/mkfs
+
+_*

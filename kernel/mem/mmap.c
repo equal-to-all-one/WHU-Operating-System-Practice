@@ -1,6 +1,7 @@
 #include "lib/print.h"
 #include "lib/str.h"
 #include "lib/lock.h"
+#include "memlayout.h"
 #include "mem/pmem.h"
 #include "mem/vmem.h"
 #include "mem/mmap.h"
@@ -39,7 +40,7 @@ void mmap_init()
 // 从仓库申请一个 mmap_region_t
 // 若申请失败则 panic
 // 注意: list_head 保留, 不会被申请出去
-mmap_region_t* mmap_region_alloc()
+mmap_region_t* mmap_region_alloc(bool init)
 {
     spinlock_acquire(&list_lk);
     

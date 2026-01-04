@@ -21,8 +21,12 @@
 #ifndef __MEMLAYOUT_H__
 #define __MEMLAYOUT_H__
 
+#include "common.h"
+
 // 内核基地址
 #define KERNEL_BASE 0x80000000ul
+// 用户基地址
+#define USER_BASE PGSIZE // 进程代码段起始地址
 
 // UART 相关
 #define UART_BASE  0x10000000ul

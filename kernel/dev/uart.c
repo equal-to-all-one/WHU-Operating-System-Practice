@@ -2,6 +2,8 @@
 
 #include "memlayout.h"
 #include "lib/lock.h"
+#include "dev/uart.h"
+#include "dev/console.h"
 
 // the UART control registers.
 // some have different meanings for
@@ -11,8 +13,8 @@
 #define RHR 0                 // receive holding register (for input bytes)
 #define THR 0                 // transmit holding register (for output bytes)
 #define IER 1                 // interrupt enable register
-#define IER_TX_ENABLE (1<<0)
-#define IER_RX_ENABLE (1<<1)
+#define IER_RX_ENABLE (1<<0)
+#define IER_TX_ENABLE (1<<1)
 #define FCR 2                 // FIFO control register
 #define FCR_FIFO_ENABLE (1<<0)
 #define FCR_FIFO_CLEAR (3<<1) // clear the content of the two FIFOs
@@ -88,6 +90,6 @@ void uart_intr(void)
   {
     int c = uart_getc_sync();
     if(c == -1) break;
-    uart_putc_sync(c);
+    console_intr(c);
   }
 }

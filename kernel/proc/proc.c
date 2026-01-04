@@ -8,6 +8,9 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "fs/fs.h"
+#include "fs/dir.h"
+#include "fs/file.h"
+#include "fs/inode.h"
 
 /*----------------外部空间------------------*/
 
@@ -60,6 +63,17 @@ static void fork_return()
         // be run from main().
         first = false;
         fs_init();
+
+        // Init cwd and console for the first process
+        p->cwd = path_to_inode("/");
+        if(p->cwd == NULL) panic("fork_return: no root");
+
+        file_t* f = file_create_dev("/console", DEV_CONSOLE, 0);
+        if(f == NULL) panic("fork_return: console");
+        
+        p->filelist[0] = f;
+        p->filelist[1] = file_dup(f);
+        p->filelist[2] = file_dup(f);
         
         // ensure other cores see first=0.
         __sync_synchronize();
@@ -88,6 +102,10 @@ proc_t* proc_alloc()
 found:
     p->pid = alloc_pid();
     p->state = USED; // Mark as used, but not runnable yet
+
+    // Clear file descriptors and cwd
+    memset(p->filelist, 0, sizeof(p->filelist));
+    p->cwd = 0;
 
     // Allocate trapframe
     if((p->tf = (trapframe_t*)pmem_alloc(true)) == NULL){
@@ -200,14 +218,14 @@ void proc_make_first()
 
     // ustack 映射 + 设置 ustack_pages 
     uint64 ustack_va = TRAPFRAME - PGSIZE;
-    void *ustack_pa = pmem_alloc(true);
+    void *ustack_pa = pmem_alloc(false);
     if(ustack_pa == NULL) panic("proc_make_first: alloc ustack failed");
     vm_mappages(p->pgtbl, ustack_va, (uint64)ustack_pa, PGSIZE, PTE_R | PTE_W | PTE_U);
     p->ustack_pages = 1;
 
     // initcode 映射
-    uint64 initcode_va = CODE_TEXT_START;
-    void *initcode_pa = pmem_alloc(true);
+    uint64 initcode_va = USER_BASE;
+    void *initcode_pa = pmem_alloc(false);
     if(initcode_pa == NULL) panic("proc_make_first: alloc initcode failed");
     
     // data + code 映射
@@ -221,12 +239,10 @@ void proc_make_first()
     p->heap_top = initcode_va + PGSIZE;
 
     // 设置 mmap_region_t
-    p->mmap = mmap_region_alloc();
+    p->mmap = mmap_region_alloc(true);
     if(p->mmap == NULL) panic("proc_make_first: alloc mmap failed");
-    p->mmap->begin = MMAP_BEGIN;
-    p->mmap->npages = (MMAP_END - MMAP_BEGIN) / PGSIZE;
-    p->mmap->next = NULL;
 
+    // 不能在这里进行文件系统相关操作，因为此时文件系统还未初始化
     // 设置 trapframe
     p->tf->epc = initcode_va;
     p->tf->sp = ustack_va + PGSIZE;
@@ -237,6 +253,7 @@ void proc_make_first()
 
 // 进程复制
 // UNUSED -> RUNNABLE
+// 失败返回-1 成功时父进程中返回子进程pid，子进程中返回0
 int proc_fork()
 {
     int pid;
@@ -263,7 +280,7 @@ int proc_fork()
     mmap_region_t *node = p->mmap; // 指向父进程的空闲链表头
     mmap_region_t **prev = &np->mmap; // 指向子进程链表头的指针地址（用于构建链表）
     while(node){
-        mmap_region_t *new_node = mmap_region_alloc(); // 为子进程分配一个新的节点结构体
+        mmap_region_t *new_node = mmap_region_alloc(false); // 为子进程分配一个新的节点结构体
         if(new_node == NULL){
             proc_free(np);
             spinlock_release(&np->lk);
@@ -278,7 +295,11 @@ int proc_fork()
     }
 
     // increment reference counts on open file descriptors
-    // (Not implemented yet, but would go here)
+    for(int i = 0; i < FILE_PER_PROC; i++){
+        if(p->filelist[i])
+            np->filelist[i] = file_dup(p->filelist[i]);
+    }
+    np->cwd = inode_dup(p->cwd);
 
     pid = np->pid;
 
@@ -380,7 +401,18 @@ void proc_exit(int exit_state)
     if(p == proczero)
         panic("init exiting");
 
-    // Close all open files (not implemented)
+    // Close all open files
+    for(int i = 0; i < FILE_PER_PROC; i++){
+        if(p->filelist[i]){
+            file_close(p->filelist[i]);
+            p->filelist[i] = 0;
+        }
+    }
+
+    if(p->cwd){
+        inode_free(p->cwd);
+        p->cwd = 0;
+    }
 
     spinlock_acquire(&wait_lock);
 

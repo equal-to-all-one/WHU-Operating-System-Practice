@@ -104,10 +104,10 @@ void uvm_destroy_pgtbl(pgtbl_t pgtbl)
 void uvm_copy_pgtbl(pgtbl_t old, pgtbl_t new, uint64 heap_top, uint32 ustack_pages, mmap_region_t* mmap)
 {
     /* USER_BASE ~ heap_top */
-    // Assuming USER_BASE is CODE_TEXT_START (initcode start)
+    // Assuming USER_BASE is USER_BASE (initcode start)
     // But heap_top is the end of the heap.
-    // We should copy from CODE_TEXT_START to heap_top.
-    copy_range(old, new, CODE_TEXT_START, heap_top);
+    // We should copy from USER_BASE to heap_top.
+    copy_range(old, new, USER_BASE, heap_top);
 
     /* ustack */
     uint64 ustack_top = TRAPFRAME;
@@ -183,7 +183,7 @@ void uvm_mmap(uint64 begin, uint32 npages, int perm)
     }
     // Case 4: 中间区域，包含但不涉及边界
     else {
-        mmap_region_t* new_node = mmap_region_alloc();
+        mmap_region_t* new_node = mmap_region_alloc(false);
         if (!new_node) panic("uvm_mmap: alloc failed");
         
         new_node->begin = end;
@@ -217,7 +217,7 @@ void uvm_munmap(uint64 begin, uint32 npages)
     vm_unmappages(p->pgtbl, begin, npages * PGSIZE, true);
 
     // ----- 在 mmap 链表中插入新的可用区域 -----
-    mmap_region_t* new_node = mmap_region_alloc();
+    mmap_region_t* new_node = mmap_region_alloc(false);
     if (!new_node) panic("uvm_munmap: alloc failed");
     new_node->begin = begin;
     new_node->npages = npages;
@@ -267,7 +267,7 @@ void uvm_munmap(uint64 begin, uint32 npages)
 
 // 用户堆空间增加, 返回新的堆顶地址 (注意栈顶最大值限制)
 // 在这里无需修正 p->heap_top
-uint64 uvm_heap_grow(pgtbl_t pgtbl, uint64 heap_top, uint32 len)
+uint64 uvm_heap_grow(pgtbl_t pgtbl, uint64 heap_top, uint32 len, int flags)
 {
     uint64 new_heap_top = heap_top + len;
     uint64 va;
@@ -285,7 +285,7 @@ uint64 uvm_heap_grow(pgtbl_t pgtbl, uint64 heap_top, uint32 len)
             return 0;
         }
         memset(pa, 0, PGSIZE);
-        if (vm_mappages(pgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W | PTE_U) != 0) {
+        if (vm_mappages(pgtbl, va, (uint64)pa, PGSIZE, PTE_U | PTE_R| flags) != 0) {
             pmem_free((uint64)pa, false);
             uvm_heap_ungrow(pgtbl, va, va - start_alloc);
             return 0;

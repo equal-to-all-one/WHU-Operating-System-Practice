@@ -132,30 +132,29 @@ uint32 dir_get_entries(inode_t* pip, uint32 len, void* dst, bool user)
 
 // 改变进程里存储的当前目录
 // 成功返回0 失败返回-1
-// uint32 dir_change(char* path)
-// {
-//     inode_t *ip;
-//     // proc_t *p = myproc();
+uint32 dir_change(char* path)
+{
+    inode_t *ip;
+    proc_t *p = myproc();
 
-//     ip = path_to_inode(path);
-//     if(ip == NULL)
-//         return -1;
+    ip = path_to_inode(path);
+    if(ip == NULL)
+        return -1;
     
-//     inode_lock(ip);
-//     if(ip->type != FT_DIR){
-//         inode_unlock_free(ip);
-//         return -1;
-//     }
-//     inode_unlock(ip);
+    inode_lock(ip);
+    if(ip->type != FT_DIR){
+        inode_unlock_free(ip);
+        return -1;
+    }
+    inode_unlock(ip);
 
-//     // inode_t *old = p->cwd;
-//     // p->cwd = ip;
-//     // if(old)
-//     //     inode_free(old);
+    inode_t *old = p->cwd;
+    p->cwd = ip;
+    if(old)
+        inode_free(old);
     
-//     inode_free(ip); // Temporary: release ip since we can't store it.
-//     return 0;
-// }
+    return 0;
+}
 
 // 输出一个目录下的所有有效目录项
 // for debug
@@ -217,7 +216,7 @@ static inode_t* search_inode(char* path, char* name, bool find_parent)
     if(*path == '/') {
         ip = inode_alloc(INODE_ROOT);
     } else {
-        return NULL;
+        ip = inode_dup(myproc()->cwd);
     }
 
     while((path = skip_element(path, buf)) != 0){
@@ -268,8 +267,8 @@ inode_t* path_to_pinode(char* path, char* name)
     return search_inode(path, name, true);
 }
 
-// 如果path对应的inode存在则返回inode
-// 如果path对应的inode不存在则创建inode
+// 如果path对应的inode存在则返回引用但是未上锁的inode
+// 如果path对应的inode不存在则创建inode（引用但是未上锁）
 // 失败返回NULL
 inode_t* path_create_inode(char* path, uint16 type, uint16 major, uint16 minor)
 {
@@ -304,6 +303,18 @@ inode_t* path_create_inode(char* path, uint16 type, uint16 major, uint16 minor)
         inode_unlock_free(ip);
         
         return NULL;
+    }
+
+    if(type == FT_DIR){
+        inode_lock(ip);
+        dir_add_entry(ip, ip->inode_num, ".");
+        dir_add_entry(ip, pip->inode_num, "..");
+        ip->nlink++;
+        inode_rw(ip, true);
+        inode_unlock(ip);
+
+        pip->nlink++;
+        inode_rw(pip, true);
     }
 
     inode_unlock_free(pip);

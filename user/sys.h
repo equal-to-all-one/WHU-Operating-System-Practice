@@ -23,7 +23,7 @@ typedef long syscall_arg_t;
 #define __SYSCALL_DISP(b, ...)                        \
     __SYSCALL_CONCAT(b, __SYSCALL_NARGS(__VA_ARGS__)) \
     (__VA_ARGS__)
-//dispatcher
+
 #define __syscall(...) __SYSCALL_DISP(__syscall, __VA_ARGS__)
 #define syscall(...) __syscall(__VA_ARGS__)
 
