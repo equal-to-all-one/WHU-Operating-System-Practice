@@ -220,6 +220,12 @@ docker container run -it --name oslab --rm -p 127.0.0.1:26000:26000 --mount type
 
 2.  **路径映射 (`sourceFileMap`)**:
     如果调试时断点无法命中，或者 GDB 提示找不到源文件，请务必检查 `launch.json` 中的 `sourceFileMap`。容器内的绝对路径必须与 `docker run -v` 挂载的目标路径严格一致。
-    
-3.  **GDB 多进程调试**:
+
+3.  **物理内存分配 (`pmem_alloc`)**:
+    在使用 `pmem_alloc` 时需格外注意参数。内核页表和内核数据结构应使用 `pmem_alloc(true)`；而用户进程的页表、栈和数据页应使用 `pmem_alloc(false)`。混用会导致 `pmem_free` 时因区域检查失败而触发 Panic。
+
+4.  **锁的粒度与死锁**:
+    在文件系统开发中（如 `path_create_inode`），涉及目录锁和 Inode 锁的嵌套获取。务必遵循“先获取父节点锁，获取子节点引用后，尽早释放父节点锁”的原则，并注意错误处理路径上的锁释放，防止死锁。
+
+5.  **GDB 多进程调试**:
     由于 QEMU 模拟的是多核环境，GDB 可能会在不同 CPU 之间切换。调试时建议关注当前断点所在的 CPU 上下文（Hart ID）。
